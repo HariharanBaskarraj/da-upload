@@ -6,13 +6,11 @@ logger = logging.getLogger(__name__)
 
 
 class JSONProcessor(BaseDAProcessor):
-    """Process DA from JSON format"""
 
     REQUIRED_MAIN_FIELDS = ['Licensee ID', 'Title ID', 'Version ID', 'Release Year',
                             'License Period Start', 'License Period End']
 
     def validate_payload(self, payload: Dict) -> None:
-        """Validate JSON payload structure"""
         if 'main_body_attributes' not in payload:
             raise ValueError("Missing 'main_body_attributes' in payload")
 
@@ -23,7 +21,6 @@ class JSONProcessor(BaseDAProcessor):
             raise ValueError("'components' must be a list")
 
     def validate_main_body(self, main_body: Dict) -> None:
-        """Validate main body has all required fields"""
         missing_fields = []
         for field in self.REQUIRED_MAIN_FIELDS:
             if field not in main_body or not main_body[field]:
@@ -35,7 +32,6 @@ class JSONProcessor(BaseDAProcessor):
             raise ValueError(error_msg)
 
     def validate_components(self, components: List[Dict]) -> None:
-        """Validate components"""
         if not components:
             raise ValueError("No components found in payload")
 
@@ -46,7 +42,6 @@ class JSONProcessor(BaseDAProcessor):
                 raise ValueError(error_msg)
 
     def extract_values(self, main_body_attrs: Dict) -> Dict:
-        """Extract values from main body attributes"""
         extracted = {}
         for key, data in main_body_attrs.items():
             if isinstance(data, dict):
@@ -56,7 +51,6 @@ class JSONProcessor(BaseDAProcessor):
         return extracted
 
     def normalize_data(self, main_body_values: Dict, components: List[Dict]) -> tuple:
-        """Normalize field names to match database schema"""
         normalized_main = {
             'TitleID': main_body_values.get('Title ID', ''),
             'TitleName': main_body_values.get('Title Name', ''),
@@ -90,40 +84,35 @@ class JSONProcessor(BaseDAProcessor):
         return normalized_main, normalized_components
 
     def process(self, payload: Dict) -> Dict:
-        """Main processing method"""
         try:
-            # Validate structure
             self.validate_payload(payload)
 
-            # Extract values
             main_body_values = self.extract_values(
                 payload['main_body_attributes'])
             components = payload['components']
 
-            # Validate
             self.validate_main_body(main_body_values)
             self.validate_components(components)
 
-            # Normalize
             normalized_main, normalized_components = self.normalize_data(
                 main_body_values, components)
 
-            # Apply defaults
+            studio_id = normalized_main.get('InternalStudioID', '1')
             normalized_main = self.default_service.apply_defaults(
                 normalized_main,
-                normalized_main['LicenseeID']
+                studio_id
             )
 
-            # Store in DynamoDB
-            title_result = self.db_service.create_or_update_title(
-                normalized_main)
-            record_id = title_result['ID']
+            self.db_service.create_or_update_title_info(normalized_main)
+
+            da_result = self.db_service.create_da_record(normalized_main)
+            record_id = da_result['ID']
 
             for component in normalized_components:
                 self.db_service.create_component(
                     record_id, normalized_main['TitleID'], component)
 
-            logger.info(f"✅ Successfully processed DA upload: ID={record_id}")
+            logger.info(f"Successfully processed DA upload: ID={record_id}")
 
             return {
                 'success': True,

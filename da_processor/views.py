@@ -2,69 +2,56 @@ import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from config import settings
 from da_processor.processors.json_processor import JSONProcessor
-from da_processor.services.default_values_service import DefaultValuesService
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from da_processor.processors.json_processor import JSONProcessor
+from da_processor.processors.csv_processor import CSVProcessor
 
 logger = logging.getLogger(__name__)
 
 
 class DistributionAuthorizationAPIView(APIView):
     """API endpoint for JSON DA submissions"""
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def post(self, request):
-        """Process DA from JSON payload"""
         try:
-            payload = request.data
-            
-            if not payload:
+            content_type = request.content_type
+
+            if 'application/json' in content_type:
+                payload = request.data
+                processor = JSONProcessor()
+                result = processor.process(payload)
+            elif 'multipart/form-data' in content_type or 'text/csv' in content_type:
+                if 'file' not in request.FILES:
+                    return Response(
+                        {'error': 'No file provided in request'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                csv_file = request.FILES['file']
+                csv_content = csv_file.read().decode('utf-8')
+                
+                processor = CSVProcessor()
+                result = processor.process(csv_content)
+            else:
                 return Response(
-                    {'error': 'Empty payload'},
+                    {'error': f'Unsupported content type: {content_type}'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            # Process the DA
-            processor = JSONProcessor()
-            result = processor.process(payload)
-            
-            logger.info(f"DA processed successfully: {result}")
-            
+
             return Response(result, status=status.HTTP_201_CREATED)
-            
+
         except ValueError as e:
             logger.error(f"Validation error: {str(e)}")
             return Response(
-                {'error': str(e), 'type': 'validation_error'},
+                {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
-            logger.error(f"Processing error: {str(e)}")
+            logger.error(f"Error processing DA upload: {str(e)}", exc_info=True)
             return Response(
-                {'error': 'Internal processing error', 'details': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-
-class LicenseeDefaultsAPIView(APIView):
-    """API endpoint for viewing current default configuration"""
-
-    def get(self, request, licensee_id):
-        """Get default values configuration"""
-        try:
-            defaults = {
-                'licensee_id': licensee_id,
-                'default_delivery_window_days': settings.DEFAULT_DELIVERY_WINDOW_DAYS,
-                'exception_notification_days': settings.EXCEPTION_NOTIFICATION_DAYS,
-                'default_exception_recipients': settings.DEFAULT_EXCEPTION_RECIPIENTS,
-                'note': 'These are system-level defaults configured via environment variables'
-            }
-            
-            return Response(defaults, status=status.HTTP_200_OK)
-            
-        except Exception as e:
-            logger.error(f"Error retrieving defaults: {str(e)}")
-            return Response(
-                {'error': 'Failed to retrieve defaults'},
+                {'error': 'Internal server error processing DA upload'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

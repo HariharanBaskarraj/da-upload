@@ -8,18 +8,15 @@ logger = logging.getLogger(__name__)
 
 
 class CSVProcessor(BaseDAProcessor):
-    """Process DA from CSV format"""
 
     REQUIRED_MAIN_FIELDS = ['Licensee ID', 'Title ID', 'Version ID', 'Release Year',
                             'License Period Start', 'License Period End']
     REQUIRED_COMPONENT_FIELDS = ['Component ID', 'Required Flag']
 
     def parse_csv(self, csv_content: str) -> Tuple[Dict, List[Dict]]:
-        """Parse CSV content into main body and components"""
         csv_reader = csv.reader(StringIO(csv_content))
         all_rows = list(csv_reader)
 
-        # Find the divider row (Component section start)
         divider_index = None
         for i, row in enumerate(all_rows):
             if len(row) >= 3 and row[0] == 'Component ID' and row[1] == 'Required Flag':
@@ -30,7 +27,6 @@ class CSVProcessor(BaseDAProcessor):
             raise ValueError(
                 "CSV format invalid: Component section divider not found")
 
-        # Parse main body (2-column structure)
         main_body = {}
         for i in range(1, divider_index):
             row = all_rows[i]
@@ -39,7 +35,6 @@ class CSVProcessor(BaseDAProcessor):
                 value = row[1].strip() if len(row) > 1 else ''
                 main_body[field_name] = value
 
-        # Parse components (3-column structure)
         components = []
         for i in range(divider_index + 1, len(all_rows)):
             row = all_rows[i]
@@ -56,7 +51,6 @@ class CSVProcessor(BaseDAProcessor):
         return main_body, components
 
     def validate_main_body(self, main_body: Dict) -> None:
-        """Validate main body has all required fields"""
         missing_fields = []
         for field in self.REQUIRED_MAIN_FIELDS:
             if field not in main_body or not main_body[field]:
@@ -68,7 +62,6 @@ class CSVProcessor(BaseDAProcessor):
             raise ValueError(error_msg)
 
     def validate_components(self, components: List[Dict]) -> None:
-        """Validate components have required fields"""
         if not components:
             raise ValueError("No components found in CSV")
 
@@ -80,7 +73,6 @@ class CSVProcessor(BaseDAProcessor):
                     raise ValueError(error_msg)
 
     def normalize_data(self, main_body: Dict, components: List[Dict]) -> Tuple[Dict, List[Dict]]:
-        """Normalize field names to match database schema"""
         normalized_main = {
             'TitleID': main_body.get('Title ID', ''),
             'TitleName': main_body.get('Title Name', ''),
@@ -114,36 +106,31 @@ class CSVProcessor(BaseDAProcessor):
         return normalized_main, normalized_components
 
     def process(self, csv_content: str) -> Dict:
-        """Main processing method"""
         try:
-            # Parse CSV
             main_body, components = self.parse_csv(csv_content)
 
-            # Validate
             self.validate_main_body(main_body)
             self.validate_components(components)
 
-            # Normalize
             normalized_main, normalized_components = self.normalize_data(
                 main_body, components)
 
-            # Apply defaults
+            studio_id = normalized_main.get('InternalStudioID', '1')
             normalized_main = self.default_service.apply_defaults(
                 normalized_main,
-                normalized_main['LicenseeID']
+                studio_id
             )
 
-            # Store in DynamoDB
-            title_result = self.db_service.create_or_update_title(
-                normalized_main)
-            record_id = title_result['ID']
+            self.db_service.create_or_update_title_info(normalized_main)
 
-            # Store components linked to this record
+            da_result = self.db_service.create_da_record(normalized_main)
+            record_id = da_result['ID']
+
             for component in normalized_components:
                 self.db_service.create_component(
                     record_id, normalized_main['TitleID'], component)
 
-            logger.info(f"✅ Successfully processed DA upload: ID={record_id}")
+            logger.info(f"Successfully processed DA upload: ID={record_id}")
 
             return {
                 'success': True,
