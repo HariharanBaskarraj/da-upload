@@ -1,5 +1,6 @@
 import logging
 from typing import Dict, List
+from django.conf import settings
 from .base_processor import BaseDAProcessor
 
 logger = logging.getLogger(__name__)
@@ -11,6 +12,7 @@ class JSONProcessor(BaseDAProcessor):
                             'License Period Start', 'License Period End']
 
     def validate_payload(self, payload: Dict) -> None:
+        logger.debug("[PROCESSOR] Validating payload structure")
         if 'main_body_attributes' not in payload:
             raise ValueError("Missing 'main_body_attributes' in payload")
 
@@ -21,6 +23,7 @@ class JSONProcessor(BaseDAProcessor):
             raise ValueError("'components' must be a list")
 
     def validate_main_body(self, main_body: Dict) -> None:
+        logger.debug("[PROCESSOR] Validating main body attributes")
         missing_fields = []
         for field in self.REQUIRED_MAIN_FIELDS:
             if field not in main_body or not main_body[field]:
@@ -32,6 +35,7 @@ class JSONProcessor(BaseDAProcessor):
             raise ValueError(error_msg)
 
     def validate_components(self, components: List[Dict]) -> None:
+        logger.debug(f"[PROCESSOR] Validating {len(components)} components")
         if not components:
             raise ValueError("No components found in payload")
 
@@ -42,90 +46,97 @@ class JSONProcessor(BaseDAProcessor):
                 raise ValueError(error_msg)
 
     def extract_values(self, main_body_attrs: Dict) -> Dict:
+        logger.debug("[PROCESSOR] Extracting main_body_attributes values")
         extracted = {}
         for key, data in main_body_attrs.items():
             if isinstance(data, dict):
                 extracted[key] = data.get('Value', '')
             else:
                 extracted[key] = data
+        logger.debug(f"[PROCESSOR] Extracted values: {extracted}")
         return extracted
 
     def normalize_data(self, main_body_values: Dict, components: List[Dict]) -> tuple:
+        logger.debug("[PROCESSOR] Normalizing data for DB storage")
         normalized_main = {
-            'TitleID': main_body_values.get('Title ID', ''),
-            'TitleName': main_body_values.get('Title Name', ''),
-            'TitleEIDRID': main_body_values.get('Title EIDR ID', ''),
-            'VersionID': main_body_values.get('Version ID', ''),
-            'VersionName': main_body_values.get('Version Name', ''),
-            'VersionEIDRID': main_body_values.get('Version EIDR ID', ''),
-            'ReleaseYear': main_body_values.get('Release Year', ''),
-            'LicenseeID': main_body_values.get('Licensee ID', ''),
-            'DADescription': main_body_values.get('DA Description', ''),
-            'DueDate': main_body_values.get('Due Date', ''),
-            'EarliestDeliveryDate': main_body_values.get('Earliest Delivery Date', ''),
-            'LicensePeriodStart': main_body_values.get('License Period Start', ''),
-            'LicensePeriodEnd': main_body_values.get('License Period End', ''),
+            'Title_ID': main_body_values.get('Title ID', ''),
+            'Title_Name': main_body_values.get('Title Name', ''),
+            'Title_EIDR_ID': main_body_values.get('Title EIDR ID', ''),
+            'Version_ID': main_body_values.get('Version ID', ''),
+            'Version_Name': main_body_values.get('Version Name', ''),
+            'Version_EIDR_ID': main_body_values.get('Version EIDR ID', ''),
+            'Release_Year': main_body_values.get('Release Year', ''),
+            'Licensee_ID': main_body_values.get('Licensee ID', ''),
+            'DA_Description': main_body_values.get('DA Description', ''),
+            'Due_Date': main_body_values.get('Due Date', ''),
+            'Earliest_Delivery_Date': main_body_values.get('Earliest Delivery Date', ''),
+            'License_Period_Start': main_body_values.get('License Period Start', ''),
+            'License_Period_End': main_body_values.get('License Period End', ''),
             'Territories': main_body_values.get('Territories', ''),
-            'ExceptionNotificationDate': main_body_values.get('Exception Notification Date', ''),
-            'ExceptionRecipients': main_body_values.get('Exception Recipients', ''),
-            'InternalStudioID': main_body_values.get('Internal Studio ID', ''),
-            'StudioSystemID': main_body_values.get('Studio System ID', ''),
+            'Exception_Notification_Date': main_body_values.get('Exception Notification Date', ''),
+            'Exception_Recipients': main_body_values.get('Exception Recipients', ''),
+            'Internal_Studio_ID': main_body_values.get('Internal Studio ID', ''),
+            'Studio_System_ID': main_body_values.get('Studio System ID', ''),
         }
 
         normalized_components = [
             {
-                'ComponentID': comp.get('Component ID', ''),
-                'RequiredFlag': comp.get('Required Flag', 'FALSE').upper(),
-                'WatermarkRequired': comp.get('Watermark Required', 'FALSE').upper(),
+                'Component_ID': comp.get('Component ID', ''),
+                'Required_Flag': comp.get('Required Flag', 'FALSE').upper(),
+                'Watermark_Required': comp.get('Watermark Required', 'FALSE').upper(),
             }
             for comp in components
         ]
 
+        logger.debug(f"[PROCESSOR] Normalized main body: {normalized_main}")
+        logger.debug(f"[PROCESSOR] Normalized {len(normalized_components)} components")
         return normalized_main, normalized_components
 
     def process(self, payload: Dict) -> Dict:
         try:
+            logger.info("[PROCESSOR] Starting DA JSON processing")
             self.validate_payload(payload)
 
-            main_body_values = self.extract_values(
-                payload['main_body_attributes'])
+            main_body_values = self.extract_values(payload['main_body_attributes'])
             components = payload['components']
 
             self.validate_main_body(main_body_values)
             self.validate_components(components)
 
-            normalized_main, normalized_components = self.normalize_data(
-                main_body_values, components)
+            normalized_main, normalized_components = self.normalize_data(main_body_values, components)
+            logger.debug(f"[PROCESSOR] Normalized main before defaults: {normalized_main}")
 
-            studio_id = normalized_main.get('InternalStudioID', '1')
-            normalized_main = self.default_service.apply_defaults(
-                normalized_main,
-                studio_id
-            )
+            studio_id = normalized_main.get('Internal_Studio_ID') or settings.DEFAULT_STUDIO_ID
+            logger.debug(f"[PROCESSOR] Applying defaults for Studio_ID={studio_id}")
 
-            self.db_service.create_or_update_title_info(normalized_main)
+            normalized_main = self.default_service.apply_defaults(normalized_main, studio_id)
+            logger.debug(f"[PROCESSOR] Normalized main AFTER defaults applied: {normalized_main}")
 
+            self.db_service.create_if_not_exists_title_info(normalized_main)
+
+            logger.debug(f"[PROCESSOR] Writing DA record to DB: {normalized_main}")
             da_result = self.db_service.create_da_record(normalized_main)
+            logger.debug(f"[PROCESSOR] DB response for DA record creation: {da_result}")
+
             record_id = da_result['ID']
 
             for component in normalized_components:
-                self.db_service.create_component(
-                    record_id, normalized_main['TitleID'], component)
+                logger.debug(f"[PROCESSOR] Creating component record for DA ID={record_id}: {component}")
+                self.db_service.create_component(record_id, normalized_main['Title_ID'], component)
 
             logger.info(f"Successfully processed DA upload: ID={record_id}")
 
             return {
                 'success': True,
                 'id': record_id,
-                'title_id': normalized_main['TitleID'],
-                'version_id': normalized_main['VersionID'],
-                'licensee_id': normalized_main['LicenseeID'],
+                'title_id': normalized_main['Title_ID'],
+                'version_id': normalized_main['Version_ID'],
+                'licensee_id': normalized_main['Licensee_ID'],
                 'components_count': len(normalized_components)
             }
 
         except Exception as e:
             logger.error(f"Error processing JSON: {str(e)}")
-            main_body_values = self.extract_values(payload.get(
-                'main_body_attributes', {})) if 'payload' in locals() else {}
+            main_body_values = self.extract_values(payload.get('main_body_attributes', {})) if 'payload' in locals() else {}
             self.send_exception_notification(str(e), main_body_values)
             raise

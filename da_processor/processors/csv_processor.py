@@ -2,6 +2,7 @@ import csv
 import logging
 from io import StringIO
 from typing import Dict, List, Tuple
+from django.conf import settings
 from .base_processor import BaseDAProcessor
 
 logger = logging.getLogger(__name__)
@@ -74,31 +75,31 @@ class CSVProcessor(BaseDAProcessor):
 
     def normalize_data(self, main_body: Dict, components: List[Dict]) -> Tuple[Dict, List[Dict]]:
         normalized_main = {
-            'TitleID': main_body.get('Title ID', ''),
-            'TitleName': main_body.get('Title Name', ''),
-            'TitleEIDRID': main_body.get('Title EIDR ID', ''),
-            'VersionID': main_body.get('Version ID', ''),
-            'VersionName': main_body.get('Version Name', ''),
-            'VersionEIDRID': main_body.get('Version EIDR ID', ''),
-            'ReleaseYear': main_body.get('Release Year', ''),
-            'LicenseeID': main_body.get('Licensee ID', ''),
-            'DADescription': main_body.get('DA Description', ''),
-            'DueDate': main_body.get('Due Date', ''),
-            'EarliestDeliveryDate': main_body.get('Earliest Delivery Date', ''),
-            'LicensePeriodStart': main_body.get('License Period Start', ''),
-            'LicensePeriodEnd': main_body.get('License Period End', ''),
+            'Title_ID': main_body.get('Title ID', ''),
+            'Title_Name': main_body.get('Title Name', ''),
+            'Title_EIDR_ID': main_body.get('Title EIDR ID', ''),
+            'Version_ID': main_body.get('Version ID', ''),
+            'Version_Name': main_body.get('Version Name', ''),
+            'Version_EIDR_ID': main_body.get('Version EIDR ID', ''),
+            'Release_Year': main_body.get('Release Year', ''),
+            'Licensee_ID': main_body.get('Licensee ID', ''),
+            'DA_Description': main_body.get('DA Description', ''),
+            'Due_Date': main_body.get('Due Date', ''),
+            'Earliest_Delivery_Date': main_body.get('Earliest Delivery Date', ''),
+            'License_Period_Start': main_body.get('License Period Start', ''),
+            'License_Period_End': main_body.get('License Period End', ''),
             'Territories': main_body.get('Territories', ''),
-            'ExceptionNotificationDate': main_body.get('Exception Notification Date', ''),
-            'ExceptionRecipients': main_body.get('Exception Recipients', ''),
-            'InternalStudioID': main_body.get('Internal Studio ID', ''),
-            'StudioSystemID': main_body.get('Studio System ID', ''),
+            'Exception_Notification_Date': main_body.get('Exception Notification Date', ''),
+            'Exception_Recipients': main_body.get('Exception Recipients', ''),
+            'Internal_Studio_ID': main_body.get('Internal Studio ID', ''),
+            'Studio_System_ID': main_body.get('Studio System ID', ''),
         }
 
         normalized_components = [
             {
-                'ComponentID': comp['Component ID'],
-                'RequiredFlag': comp['Required Flag'].upper(),
-                'WatermarkRequired': comp['Watermark Required'].upper(),
+                'Component_ID': comp['Component ID'],
+                'Required_Flag': comp['Required Flag'].upper(),
+                'Watermark_Required': comp['Watermark Required'].upper(),
             }
             for comp in components
         ]
@@ -115,29 +116,30 @@ class CSVProcessor(BaseDAProcessor):
             normalized_main, normalized_components = self.normalize_data(
                 main_body, components)
 
-            studio_id = normalized_main.get('InternalStudioID', '1')
+            studio_id = normalized_main.get(
+                'Internal_Studio_ID') or settings.DEFAULT_STUDIO_ID
             normalized_main = self.default_service.apply_defaults(
                 normalized_main,
                 studio_id
             )
 
-            self.db_service.create_or_update_title_info(normalized_main)
+            self.db_service.create_if_not_exists_title_info(normalized_main)
 
             da_result = self.db_service.create_da_record(normalized_main)
             record_id = da_result['ID']
 
             for component in normalized_components:
                 self.db_service.create_component(
-                    record_id, normalized_main['TitleID'], component)
+                    record_id, normalized_main['Title_ID'], component)
 
             logger.info(f"Successfully processed DA upload: ID={record_id}")
 
             return {
                 'success': True,
                 'id': record_id,
-                'title_id': normalized_main['TitleID'],
-                'version_id': normalized_main['VersionID'],
-                'licensee_id': normalized_main['LicenseeID'],
+                'title_id': normalized_main['Title_ID'],
+                'version_id': normalized_main['Version_ID'],
+                'licensee_id': normalized_main['Licensee_ID'],
                 'components_count': len(normalized_components)
             }
 

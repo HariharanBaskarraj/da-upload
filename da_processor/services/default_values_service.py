@@ -10,15 +10,20 @@ class DefaultValuesService:
     def __init__(self, db_service):
         self.db_service = db_service
 
-    def apply_defaults(self, da_data: Dict, studio_id: str) -> Dict:
+    def apply_defaults(self, da_data: Dict, studio_id: str = None) -> Dict:
         result = da_data.copy()
 
-        studio_config = self.db_service.get_studio_config(studio_id) or {}
+        studio_config = self.db_service.get_studio_config() or {}
 
-        due_date_window = int(float(studio_config.get("DueDateWindow", 0)))
-        earliest_delivery = int(float(studio_config.get("EarliestDelivery", 0)))
-        exception_notification = int(float(studio_config.get("ExceptionNotification", 0)))
-        exception_recipients = studio_config.get("ExceptionRecipients", [])
+        due_date_window = int(float(studio_config.get("Due_Date_Window", 0)))
+        earliest_delivery = int(float(studio_config.get("Earliest_Delivery", 0)))
+        exception_notification = int(float(studio_config.get("Exception_Notification", 0)))
+        exception_recipients = studio_config.get("Exception_Recipients", [])
+
+        logger.debug(
+            f"[DEFAULTS] Studio config → DueDateWindow={due_date_window}, "
+            f"EarliestDelivery={earliest_delivery}, ExceptionNotification={exception_notification}"
+        )
 
         result = self._apply_system_defaults(
             result,
@@ -28,6 +33,7 @@ class DefaultValuesService:
             exception_recipients
         )
 
+        logger.debug(f"[DEFAULTS] Final DA data: {result}")
         return result
 
     def _apply_system_defaults(
@@ -40,52 +46,62 @@ class DefaultValuesService:
     ) -> Dict:
         result = da_data.copy()
 
-        if result.get("LicensePeriodStart"):
-            result["LicensePeriodStart"] = to_zulu(result["LicensePeriodStart"])
-        
-        if result.get("LicensePeriodEnd"):
-            result["LicensePeriodEnd"] = to_zulu(result["LicensePeriodEnd"])
+        # Normalize license period dates
+        if result.get("License_Period_Start"):
+            result["License_Period_Start"] = to_zulu(result["License_Period_Start"])
+        if result.get("License_Period_End"):
+            result["License_Period_End"] = to_zulu(result["License_Period_End"])
 
-        if not result.get("DueDate"):
-            if result.get("LicensePeriodStart") and due_date_window > 0:
-                calculated_due_date = subtract_days(result["LicensePeriodStart"], due_date_window)
+        # --- Due Date ---
+        if not result.get("Due_Date"):
+            if result.get("License_Period_Start") and due_date_window > 0:
+                calculated_due_date = subtract_days(result["License_Period_Start"], due_date_window)
                 if calculated_due_date:
-                    result["DueDate"] = calculated_due_date
-                    logger.debug(f"Calculated Due Date from LicensePeriodStart - {due_date_window} days: {result['DueDate']}")
+                    result["Due_Date"] = calculated_due_date
+                    logger.debug(
+                        f"[DEFAULTS] Set Due_Date = License_Period_Start - {due_date_window} days → {result['Due_Date']}"
+                    )
         else:
-            result["DueDate"] = to_zulu(result["DueDate"])
-            logger.debug(f"Due Date provided in DA payload: {result['DueDate']}")
+            result["Due_Date"] = to_zulu(result["Due_Date"])
 
-        if not result.get("EarliestDeliveryDate"):
-            if result.get("DueDate") and earliest_delivery > 0:
-                calculated_earliest = subtract_days(result["DueDate"], earliest_delivery)
+        # --- Earliest Delivery Date ---
+        if not result.get("Earliest_Delivery_Date") and result.get("Due_Date"):
+            if earliest_delivery > 0:
+                calculated_earliest = subtract_days(result["Due_Date"], earliest_delivery)
                 if calculated_earliest:
-                    result["EarliestDeliveryDate"] = calculated_earliest
-                    logger.debug(f"Calculated Earliest Delivery Date from DueDate - {earliest_delivery} days: {result['EarliestDeliveryDate']}")
-        else:
-            result["EarliestDeliveryDate"] = to_zulu(result["EarliestDeliveryDate"])
-            logger.debug(f"Earliest Delivery Date provided in DA payload: {result['EarliestDeliveryDate']}")
+                    result["Earliest_Delivery_Date"] = calculated_earliest
+                    logger.debug(
+                        f"[DEFAULTS] Set Earliest_Delivery_Date = Due_Date - {earliest_delivery} days → {result['Earliest_Delivery_Date']}"
+                    )
+            else:
+                result["Earliest_Delivery_Date"] = result["Due_Date"]
+                logger.debug(
+                    f"[DEFAULTS] EarliestDelivery=0 → Earliest_Delivery_Date = Due_Date ({result['Earliest_Delivery_Date']})"
+                )
+        elif result.get("Earliest_Delivery_Date"):
+            result["Earliest_Delivery_Date"] = to_zulu(result["Earliest_Delivery_Date"])
 
-        if not result.get("ExceptionNotificationDate"):
-            if result.get("DueDate") and exception_notification > 0:
-                calculated_exception = subtract_days(result["DueDate"], exception_notification)
-                if calculated_exception:
-                    result["ExceptionNotificationDate"] = calculated_exception
-                    logger.debug(f"Calculated Exception Notification Date from DueDate - {exception_notification} days: {result['ExceptionNotificationDate']}")
-        else:
-            result["ExceptionNotificationDate"] = to_zulu(result["ExceptionNotificationDate"])
-            logger.debug(f"Exception Notification Date provided in DA payload: {result['ExceptionNotificationDate']}")
+        # --- Exception Notification Date ---
+        if not result.get("Exception_Notification_Date") and result.get("Due_Date") and exception_notification > 0:
+            calculated_exception = subtract_days(result["Due_Date"], exception_notification)
+            if calculated_exception:
+                result["Exception_Notification_Date"] = calculated_exception
+                logger.debug(
+                    f"[DEFAULTS] Set Exception_Notification_Date = Due_Date - {exception_notification} days → {result['Exception_Notification_Date']}"
+                )
+        elif result.get("Exception_Notification_Date"):
+            result["Exception_Notification_Date"] = to_zulu(result["Exception_Notification_Date"])
 
-        if not result.get("ExceptionRecipients") and exception_recipients:
-            result["ExceptionRecipients"] = ",".join(exception_recipients)
-            logger.debug(f"Applied default exception recipients from studio config: {result['ExceptionRecipients']}")
-        else:
-            logger.debug(f"Exception Recipients provided in DA payload or no default available")
+        # --- Exception Recipients ---
+        if not result.get("Exception_Recipients") and exception_recipients:
+            result["Exception_Recipients"] = ",".join(exception_recipients)
+            logger.debug("[DEFAULTS] Applied default Exception_Recipients from studio config")
 
-        if not result.get("DADescription"):
-            title_name = result.get("TitleName") or result.get("TitleID", "Unknown")
-            version_name = result.get("VersionName") or result.get("VersionID", "")
-            licensee_name = result.get("LicenseeID", "Unknown")
+        # --- DA Description ---
+        if not result.get("DA_Description"):
+            title_name = result.get("Title_Name") or result.get("Title_ID", "Unknown")
+            version_name = result.get("Version_Name") or result.get("Version_ID", "")
+            licensee_name = result.get("Licensee_ID", "Unknown")
             territories = result.get("Territories", "")
 
             description = f"{title_name}"
@@ -95,7 +111,7 @@ class DefaultValuesService:
             if territories:
                 description += f" in {territories}"
 
-            result["DADescription"] = description
-            logger.debug(f"Generated DA Description: {description}")
+            result["DA_Description"] = description
+            logger.debug(f"[DEFAULTS] Generated DA_Description: {description}")
 
         return result

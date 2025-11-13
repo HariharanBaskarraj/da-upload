@@ -21,42 +21,44 @@ class DynamoDBService:
         self.studio_config_table = self.dynamodb.Table(
             settings.DYNAMODB_STUDIO_CONFIG_TABLE)
 
-    def create_or_update_title_info(self, title_data: Dict) -> Dict:
+    def create_if_not_exists_title_info(self, title_data: Dict) -> Dict:
         try:
-            title_id = title_data.get('TitleID', '')
-            version_id = title_data.get('VersionID', '')
-            
+            title_id = title_data.get('Title_ID', '')
+            version_id = title_data.get('Version_ID', '')
+
             if not title_id or not version_id:
-                raise ValueError("TitleID and VersionID are required")
-            
+                raise ValueError("Title_ID and Version_ID are required")
+
             response = self.title_table.get_item(Key={
-                'TitleID': title_id,
-                'VersionID': version_id
+                'Title_ID': title_id,
+                'Version_ID': version_id
             })
-            
+
             is_new = 'Item' not in response
-            
+
             if is_new:
                 title_item = {
-                    'TitleID': title_id,
-                    'VersionID': version_id,
-                    'TitleName': title_data.get('TitleName', ''),
-                    'TitleEIDRID': title_data.get('TitleEIDRID', ''),
-                    'VersionName': title_data.get('VersionName', ''),
-                    'VersionEIDRID': title_data.get('VersionEIDRID', ''),
-                    'ReleaseYear': title_data.get('ReleaseYear', ''),
+                    'Title_ID': title_id,
+                    'Version_ID': version_id,
+                    'Title_Name': title_data.get('Title_Name', ''),
+                    'Title_EIDR_ID': title_data.get('Title_EIDR_ID', ''),
+                    'Version_Name': title_data.get('Version_Name', ''),
+                    'Version_EIDR_ID': title_data.get('Version_EIDR_ID', ''),
+                    'Release_Year': title_data.get('Release_Year', ''),
                     'Uploader': title_data.get('Uploader', 'SYSTEM'),
-                    'CreatedAt': get_current_zulu()
+                    'Created_At': get_current_zulu()
                 }
                 self.title_table.put_item(Item=title_item)
-                logger.info(f"Created new title info record: TitleID={title_id}, VersionID={version_id}")
+                logger.info(
+                    f"Created new title info record: Title_ID={title_id}, Version_ID={version_id}")
             else:
-                logger.info(f"Title info already exists, no update performed: TitleID={title_id}, VersionID={version_id}")
-            
+                logger.info(
+                    f"Title info already exists, no update performed: Title_ID={title_id}, Version_ID={version_id}")
+
             return {"is_new": is_new}
 
         except ClientError as e:
-            logger.error(f"Error in create_or_update_title_info: {e}")
+            logger.error(f"Error in create_if_not_exists_title_info: {e}")
             raise
 
     def create_da_record(self, da_data: Dict) -> Dict:
@@ -65,24 +67,25 @@ class DynamoDBService:
 
             item = {
                 'ID': record_id,
-                'TitleID': da_data.get('TitleID', ''),
-                'VersionID': da_data.get('VersionID', ''),
-                'LicenseeID': da_data.get('LicenseeID', ''),
-                'DADescription': da_data.get('DADescription', ''),
-                'DueDate': to_zulu(da_data.get('DueDate')) or '',
-                'EarliestDeliveryDate': to_zulu(da_data.get('EarliestDeliveryDate')) or '',
-                'LicensePeriodStart': to_zulu(da_data.get('LicensePeriodStart')) or '',
-                'LicensePeriodEnd': to_zulu(da_data.get('LicensePeriodEnd')) or '',
+                'Title_ID': da_data.get('Title_ID', ''),
+                'Version_ID': da_data.get('Version_ID', ''),
+                'Licensee_ID': da_data.get('Licensee_ID', ''),
+                'DA_Description': da_data.get('DA_Description', ''),
+                'Due_Date': to_zulu(da_data.get('Due_Date')) or '',
+                'Earliest_Delivery_Date': to_zulu(da_data.get('Earliest_Delivery_Date')) or '',
+                'License_Period_Start': to_zulu(da_data.get('License_Period_Start')) or '',
+                'License_Period_End': to_zulu(da_data.get('License_Period_End')) or '',
                 'Territories': da_data.get('Territories', ''),
-                'ExceptionNotificationDate': to_zulu(da_data.get('ExceptionNotificationDate')) or '',
-                'ExceptionRecipients': da_data.get('ExceptionRecipients', ''),
-                'InternalStudioID': da_data.get('InternalStudioID', ''),
-                'StudioSystemID': da_data.get('StudioSystemID', ''),
-                'CreatedAt': get_current_zulu()
+                'Exception_Notification_Date': to_zulu(da_data.get('Exception_Notification_Date')) or '',
+                'Exception_Recipients': da_data.get('Exception_Recipients', ''),
+                'Internal_Studio_ID': da_data.get('Internal_Studio_ID', ''),
+                'Studio_System_ID': da_data.get('Studio_System_ID', ''),
+                'Created_At': get_current_zulu()
             }
 
             response = self.da_table.put_item(Item=item)
-            logger.info(f"DA record created: ID={record_id}, TitleID={item['TitleID']}, VersionID={item['VersionID']}")
+            logger.info(
+                f"DA record created: ID={record_id}, Title_ID={item['Title_ID']}, Version_ID={item['Version_ID']}")
             return {"ID": record_id, "response": response}
 
         except ClientError as e:
@@ -101,16 +104,16 @@ class DynamoDBService:
         try:
             item = {
                 'ID': record_id,
-                'TitleID': title_id,
-                'ComponentID': component_data.get('ComponentID', ''),
-                'RequiredFlag': component_data.get('RequiredFlag', 'FALSE'),
-                'WatermarkRequired': component_data.get('WatermarkRequired', 'FALSE'),
-                'CreatedAt': get_current_zulu()
+                'Title_ID': title_id,
+                'Component_ID': component_data.get('Component_ID', ''),
+                'Required_Flag': component_data.get('Required_Flag', 'FALSE'),
+                'Watermark_Required': component_data.get('Watermark_Required', 'FALSE'),
+                'Created_At': get_current_zulu()
             }
 
             response = self.component_table.put_item(Item=item)
             logger.info(
-                f"Component {item['ComponentID']} added for ID={record_id}, TitleID={title_id}")
+                f"Component {item['Component_ID']} added for ID={record_id}, Title_ID={title_id}")
             return response
 
         except ClientError as e:
@@ -128,12 +131,17 @@ class DynamoDBService:
             logger.error(f"Error getting components for ID {record_id}: {e}")
             return []
 
-    def get_studio_config(self, studio_id: str) -> Optional[Dict]:
+    def get_studio_config(self, studio_id: str = None) -> Optional[Dict]:
         try:
             response = self.studio_config_table.get_item(
-                Key={'StudioID': studio_id})
-            return response.get('Item')
+                Key={'Studio_ID': '1234'})
+            config = response.get('Item')
+            if config:
+                logger.info(f"Retrieved studio config for Studio_ID=1234")
+            else:
+                logger.warning(f"No studio config found for Studio_ID=1234")
+            return config
         except ClientError as e:
             logger.error(
-                f"Error fetching studio config for {studio_id}: {e}")
+                f"Error fetching studio config for Studio_ID=1234: {e}")
             return None

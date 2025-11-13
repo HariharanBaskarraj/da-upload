@@ -56,13 +56,14 @@ class Command(BaseCommand):
             self.stdout.write(f"  Licensee ID: {result['licensee_id']}")
             self.stdout.write(f"  Components: {result['components_count']}")
 
-            # Optionally delete the file after successful processing
-            delete_after_process = os.environ.get(
-                'DELETE_AFTER_PROCESS', 'true').lower() == 'true'
-            if delete_after_process:
-                s3_service.delete_file(s3_key)
+            # Move file to Processed folder after successful processing
+            moved = s3_service.move_file_to_processed(s3_key)
+            if moved:
                 self.stdout.write(self.style.SUCCESS(
-                    f'Deleted processed file: {s3_key}'))
+                    f"Moved processed file to 'Processed/': {s3_key}"))
+            else:
+                self.stdout.write(self.style.WARNING(
+                    f"Failed to move file to 'Processed/': {s3_key}"))
 
             sys.exit(0)
 
