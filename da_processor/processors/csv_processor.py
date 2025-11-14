@@ -106,6 +106,26 @@ class CSVProcessor(BaseDAProcessor):
 
         return normalized_main, normalized_components
 
+    def validate_final_data(self, normalized_main: Dict) -> None:
+        required_normalized_fields = {
+            'Title_ID': 'Title ID',
+            'Version_ID': 'Version ID',
+            'Licensee_ID': 'Licensee ID',
+            'Release_Year': 'Release Year',
+            'License_Period_Start': 'License Period Start',
+            'License_Period_End': 'License Period End'
+        }
+
+        missing_fields = []
+        for field_key, field_name in required_normalized_fields.items():
+            if not normalized_main.get(field_key):
+                missing_fields.append(field_name)
+
+        if missing_fields:
+            error_msg = f"Required fields are empty after processing: {', '.join(missing_fields)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
     def process(self, csv_content: str) -> Dict:
         try:
             main_body, components = self.parse_csv(csv_content)
@@ -122,6 +142,8 @@ class CSVProcessor(BaseDAProcessor):
                 normalized_main,
                 studio_id
             )
+
+            self.validate_final_data(normalized_main)
 
             self.db_service.create_if_not_exists_title_info(normalized_main)
 

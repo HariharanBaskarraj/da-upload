@@ -92,6 +92,27 @@ class JSONProcessor(BaseDAProcessor):
         logger.debug(f"[PROCESSOR] Normalized {len(normalized_components)} components")
         return normalized_main, normalized_components
 
+    def validate_final_data(self, normalized_main: Dict) -> None:
+        logger.debug("[PROCESSOR] Validating final normalized data before DB insert")
+        required_normalized_fields = {
+            'Title_ID': 'Title ID',
+            'Version_ID': 'Version ID',
+            'Licensee_ID': 'Licensee ID',
+            'Release_Year': 'Release Year',
+            'License_Period_Start': 'License Period Start',
+            'License_Period_End': 'License Period End'
+        }
+
+        missing_fields = []
+        for field_key, field_name in required_normalized_fields.items():
+            if not normalized_main.get(field_key):
+                missing_fields.append(field_name)
+
+        if missing_fields:
+            error_msg = f"Required fields are empty after processing: {', '.join(missing_fields)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
     def process(self, payload: Dict) -> Dict:
         try:
             logger.info("[PROCESSOR] Starting DA JSON processing")
@@ -111,6 +132,8 @@ class JSONProcessor(BaseDAProcessor):
 
             normalized_main = self.default_service.apply_defaults(normalized_main, studio_id)
             logger.debug(f"[PROCESSOR] Normalized main AFTER defaults applied: {normalized_main}")
+
+            self.validate_final_data(normalized_main)
 
             self.db_service.create_if_not_exists_title_info(normalized_main)
 
