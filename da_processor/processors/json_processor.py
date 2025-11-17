@@ -2,6 +2,7 @@ import logging
 from typing import Dict, List
 from django.conf import settings
 from .base_processor import BaseDAProcessor
+from da_processor.services.scheduler_service import SchedulerService
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,10 @@ class JSONProcessor(BaseDAProcessor):
 
     REQUIRED_MAIN_FIELDS = ['Licensee ID', 'Title ID', 'Version ID', 'Release Year',
                             'License Period Start', 'License Period End']
+
+    def __init__(self):
+        super().__init__()
+        self.scheduler_service = SchedulerService()
 
     def validate_payload(self, payload: Dict) -> None:
         logger.debug("[PROCESSOR] Validating payload structure")
@@ -146,6 +151,18 @@ class JSONProcessor(BaseDAProcessor):
             for component in normalized_components:
                 logger.debug(f"[PROCESSOR] Creating component record for DA ID={record_id}: {component}")
                 self.db_service.create_component(record_id, normalized_main['Title_ID'], component)
+
+            earliest_delivery_date = normalized_main.get('Earliest_Delivery_Date')
+            if earliest_delivery_date:
+                try:
+                    schedule_arn = self.scheduler_service.create_manifest_schedule(
+                        da_id=record_id,
+                        earliest_delivery_date=earliest_delivery_date,
+                        licensee_id=normalized_main['Licensee_ID']
+                    )
+                    logger.info(f"Manifest schedule created: {schedule_arn}")
+                except Exception as e:
+                    logger.error(f"Failed to create manifest schedule: {e}")
 
             logger.info(f"Successfully processed DA upload: ID={record_id}")
 

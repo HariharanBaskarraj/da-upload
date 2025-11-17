@@ -4,6 +4,7 @@ from io import StringIO
 from typing import Dict, List, Tuple
 from django.conf import settings
 from .base_processor import BaseDAProcessor
+from da_processor.services.scheduler_service import SchedulerService
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,10 @@ class CSVProcessor(BaseDAProcessor):
     REQUIRED_MAIN_FIELDS = ['Licensee ID', 'Title ID', 'Version ID', 'Release Year',
                             'License Period Start', 'License Period End']
     REQUIRED_COMPONENT_FIELDS = ['Component ID', 'Required Flag']
+
+    def __init__(self):
+        super().__init__()
+        self.scheduler_service = SchedulerService()
 
     def parse_csv(self, csv_content: str) -> Tuple[Dict, List[Dict]]:
         csv_reader = csv.reader(StringIO(csv_content))
@@ -153,6 +158,18 @@ class CSVProcessor(BaseDAProcessor):
             for component in normalized_components:
                 self.db_service.create_component(
                     record_id, normalized_main['Title_ID'], component)
+
+            earliest_delivery_date = normalized_main.get('Earliest_Delivery_Date')
+            if earliest_delivery_date:
+                try:
+                    schedule_arn = self.scheduler_service.create_manifest_schedule(
+                        da_id=record_id,
+                        earliest_delivery_date=earliest_delivery_date,
+                        licensee_id=normalized_main['Licensee_ID']
+                    )
+                    logger.info(f"Manifest schedule created: {schedule_arn}")
+                except Exception as e:
+                    logger.error(f"Failed to create manifest schedule: {e}")
 
             logger.info(f"Successfully processed DA upload: ID={record_id}")
 

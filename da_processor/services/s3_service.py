@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class S3Service:
     def __init__(self):
         self.s3_client = boto3.client('s3', region_name=settings.AWS_REGION)
-        self.bucket_name = settings.AWS_S3_BUCKET
+        self.bucket_name = settings.AWS_DA_BUCKET
 
     def get_csv_content(self, key: str) -> Optional[str]:
         try:
@@ -57,7 +57,8 @@ class S3Service:
             logger.info(f"Copied failed file from {key} to {new_key}")
 
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=key)
-            logger.info(f"Deleted original file after moving to Failed/: {key}")
+            logger.info(
+                f"Deleted original file after moving to Failed/: {key}")
 
             return True
 

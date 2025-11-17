@@ -58,6 +58,6 @@ class DistributionAuthorizationAPIView(APIView):
 
 class HealthCheckView(APIView):
     """Health check endpoint"""
-
+    logger.disabled = True
     def get(self, request):
         return Response({'status': 'healthy'}, status=status.HTTP_200_OK)

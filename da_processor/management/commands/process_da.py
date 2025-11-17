@@ -25,7 +25,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         s3_key = options.get('s3_key') or os.environ.get('S3_FILE_KEY')
-        bucket = options.get('bucket') or os.environ.get('AWS_S3_BUCKET')
+        bucket = options.get('bucket') or os.environ.get('AWS_DA_BUCKET')
 
         if not s3_key:
             self.stdout.write(self.style.ERROR('S3 key not provided'))
@@ -39,7 +39,7 @@ class Command(BaseCommand):
             f'Processing CSV file: {s3_key} from bucket: {bucket}')
 
         s3_service = S3Service()
-        
+
         try:
             csv_content = s3_service.get_csv_content(s3_key)
 
@@ -67,7 +67,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(
                 f'Error processing DA: {str(e)}'))
             logger.error(f'Error processing DA: {str(e)}', exc_info=True)
-            
+
             moved = s3_service.move_file_to_failed(s3_key)
             if moved:
                 self.stdout.write(self.style.WARNING(
@@ -75,5 +75,5 @@ class Command(BaseCommand):
             else:
                 self.stdout.write(self.style.ERROR(
                     f"Failed to move file to 'Failed/': {s3_key}"))
-            
+
             sys.exit(1)
