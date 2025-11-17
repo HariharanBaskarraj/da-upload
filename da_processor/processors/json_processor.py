@@ -150,7 +150,7 @@ class JSONProcessor(BaseDAProcessor):
 
             for component in normalized_components:
                 logger.debug(f"[PROCESSOR] Creating component record for DA ID={record_id}: {component}")
-                self.db_service.create_component(record_id, normalized_main['Title_ID'], component)
+                self.db_service.create_component(record_id, normalized_main['Title_ID'], normalized_main['Version_ID'], component)
 
             earliest_delivery_date = normalized_main.get('Earliest_Delivery_Date')
             if earliest_delivery_date:

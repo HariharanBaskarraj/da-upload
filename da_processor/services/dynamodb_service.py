@@ -100,11 +100,12 @@ class DynamoDBService:
             logger.error(f"Error getting DA record {record_id}: {e}")
             return None
 
-    def create_component(self, record_id: str, title_id: str, component_data: Dict) -> Dict:
+    def create_component(self, record_id: str, title_id: str, version_id:str, component_data: Dict) -> Dict:
         try:
             item = {
                 'ID': record_id,
                 'Title_ID': title_id,
+                'Version_ID': version_id,
                 'Component_ID': component_data.get('Component_ID', ''),
                 'Required_Flag': component_data.get('Required_Flag', 'FALSE'),
                 'Watermark_Required': component_data.get('Watermark_Required', 'FALSE'),

@@ -157,7 +157,7 @@ class CSVProcessor(BaseDAProcessor):
 
             for component in normalized_components:
                 self.db_service.create_component(
-                    record_id, normalized_main['Title_ID'], component)
+                    record_id, normalized_main['Title_ID'], normalized_main['Version_ID'], component)
 
             earliest_delivery_date = normalized_main.get('Earliest_Delivery_Date')
             if earliest_delivery_date:

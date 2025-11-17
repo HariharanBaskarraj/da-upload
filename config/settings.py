@@ -121,29 +121,25 @@ LOGGING = {
 
 AWS_REGION = os.environ.get('AWS_REGION')
 AWS_DA_BUCKET = os.environ.get('AWS_DA_BUCKET')
-AWS_ASSET_REPO_BUCKET = os.environ.get(
-    'AWS_ASSET_REPO_BUCKET', 'routerunner-poc-asset-repo')
-AWS_WATERMARKED_BUCKET = os.environ.get(
-    'AWS_WATERMARKED_BUCKET', 'routerunner-poc-watermarked-assets')
+AWS_SQS_QUEUE_URL = os.environ.get('AWS_SQS_QUEUE_URL')
+AWS_ASSET_REPO_BUCKET = os.environ.get('AWS_ASSET_REPO_BUCKET', 'routerunner-poc-asset-repo')
+AWS_WATERMARKED_BUCKET = os.environ.get('AWS_WATERMARKED_BUCKET', 'routerunner-poc-watermarked-assets')
 
 DYNAMODB_DA_TABLE = os.environ.get('DYNAMODB_DA_TABLE')
 DYNAMODB_TITLE_TABLE = os.environ.get('DYNAMODB_TITLE_TABLE')
 DYNAMODB_COMPONENT_TABLE = os.environ.get('DYNAMODB_COMPONENT_TABLE')
 DYNAMODB_STUDIO_CONFIG_TABLE = os.environ.get('DYNAMODB_STUDIO_CONFIG_TABLE')
-DYNAMODB_LICENSEE_TABLE = os.environ.get(
-    'DYNAMODB_LICENSEE_TABLE', 'routerunner-poc-licensee-info')
-DYNAMODB_ASSET_TABLE = os.environ.get(
-    'DYNAMODB_ASSET_TABLE', 'routerunner-poc-asset-info')
+DYNAMODB_LICENSEE_TABLE = os.environ.get('DYNAMODB_LICENSEE_TABLE', 'routerunner-poc-licensee-info')
+DYNAMODB_ASSET_TABLE = os.environ.get('DYNAMODB_ASSET_TABLE', 'routerunner-poc-asset-info')
+DYNAMODB_COMPONENT_CONFIG_TABLE = os.environ.get('DYNAMODB_COMPONENT_CONFIG_TABLE', 'routerunner-poc-component-configs')
 
 AWS_SQS_PRIMEVIDEO_QUEUE_URL = os.environ.get('AWS_SQS_PRIMEVIDEO_QUEUE_URL')
 AWS_SQS_DLQ_URL = os.environ.get('AWS_SQS_DLQ_URL')
 
-EVENTBRIDGE_SCHEDULER_ROLE_ARN = os.environ.get(
-    'EVENTBRIDGE_SCHEDULER_ROLE_ARN')
+EVENTBRIDGE_SCHEDULER_ROLE_ARN = os.environ.get('EVENTBRIDGE_SCHEDULER_ROLE_ARN')
 LAMBDA_MANIFEST_GENERATOR_ARN = os.environ.get('LAMBDA_MANIFEST_GENERATOR_ARN')
 
-DEFAULT_EXCEPTION_RECIPIENTS = os.environ.get(
-    'DEFAULT_EXCEPTION_RECIPIENTS', '').split(',')
+DEFAULT_EXCEPTION_RECIPIENTS = os.environ.get('DEFAULT_EXCEPTION_RECIPIENTS', '').split(',')
 DEFAULT_STUDIO_ID = os.environ.get('DEFAULT_STUDIO_ID', '1234')
 
 REST_FRAMEWORK = {
