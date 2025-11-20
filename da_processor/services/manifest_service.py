@@ -297,22 +297,51 @@ class ManifestService:
         filename = asset.get('Filename', '')
         folder_path = asset.get('Folder_Path', '').replace("\\", "/") or ""
         version = int(asset.get('Version', 1)) if asset.get('Version') is not None else 1
-        file_status = "New" if version == 1 else "Revised"
-        asset_id = asset.get('AssetId', '')
+        asset_id = asset.get('Asset_ID', '')
+        checksum = asset.get('Checksum', '')
+        
+        file_status = self._determine_file_status(asset_id, checksum)
 
         file_size_mb = self._get_file_size_from_s3(filename, asset_id)
 
         return {
+            "asset_id": asset_id,
             "file_status": file_status,
             "file_name": filename,
             "file_path": f"{folder_path}{filename}",
-            "checksum": asset.get('Checksum', ''),
+            "checksum": checksum,
             "file_size_mb": file_size_mb,
+            "studio_asset_id": asset.get('Studio_Asset_ID', ''),
             "studio_revision_number": asset.get('Studio_Revision_Number', ''),
             "studio_revision_notes": asset.get('Studio_Revision_Notes', ''),
             "studio_revision_urgency": asset.get('Studio_Revision_Urgency', ''),
             "revision_id": version,
         }
+    
+    def _determine_file_status(self, asset_id: str, current_checksum: str) -> str:
+        try:
+            response = self.dynamodb.scan(
+                TableName=settings.DYNAMODB_FILE_DELIVERY_TABLE,
+                FilterExpression='Asset_ID = :asset_id',
+                ExpressionAttributeValues={':asset_id': {'S': asset_id}}
+            )
+            
+            items = response.get('Items', [])
+            
+            if not items:
+                return "New"
+            
+            existing_item = self._deserialize_item(items[0])
+            existing_checksum = existing_item.get('Checksum', '')
+            
+            if existing_checksum == current_checksum:
+                return "No Change"
+            else:
+                return "Revised"
+                
+        except Exception as e:
+            logger.warning(f"Could not determine file status for asset {asset_id}: {e}")
+            return "New"
 
     def _get_file_size_from_s3(self, filename: str, asset_id: str) -> float:
         bucket = settings.AWS_WATERMARKED_BUCKET if filename.lower().endswith(".mov") else settings.AWS_ASSET_REPO_BUCKET

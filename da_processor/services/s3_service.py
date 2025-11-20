@@ -44,10 +44,10 @@ class S3Service:
             logger.error(f"Error moving file to Processed/: {e}")
             return False
 
-    def move_file_to_failed(self, key: str) -> bool:
+    def move_file_to_error(self, key: str) -> bool:
         try:
             filename = key.split('/')[-1]
-            new_key = f"Failed/{filename}"
+            new_key = f"Error/{filename}"
 
             self.s3_client.copy_object(
                 Bucket=self.bucket_name,
@@ -58,10 +58,10 @@ class S3Service:
 
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=key)
             logger.info(
-                f"Deleted original file after moving to Failed/: {key}")
+                f"Deleted original file after moving to Error/: {key}")
 
             return True
 
         except ClientError as e:
-            logger.error(f"Error moving file to Failed/: {e}")
+            logger.error(f"Error moving file to Error/: {e}")
             return False
