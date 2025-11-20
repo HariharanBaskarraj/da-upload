@@ -171,6 +171,17 @@ class CSVProcessor(BaseDAProcessor):
                 except Exception as e:
                     logger.error(f"Failed to create manifest schedule: {e}")
 
+            exception_notification_date = normalized_main.get('Exception_Notification_Date')
+            if exception_notification_date:
+                try:
+                    exception_schedule_arn = self.scheduler_service.create_exception_notification_schedule(
+                        da_id=record_id,
+                        exception_notification_date=exception_notification_date
+                    )
+                    logger.info(f"Exception notification schedule created: {exception_schedule_arn}")
+                except Exception as e:
+                    logger.error(f"Failed to create exception notification schedule: {e}")
+                    
             logger.info(f"Successfully processed DA upload: ID={record_id}")
 
             return {
