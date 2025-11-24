@@ -1,3 +1,4 @@
+import json
 import logging
 from django.core.management.base import BaseCommand
 from django.conf import settings
@@ -44,6 +45,13 @@ class Command(BaseCommand):
                 
                 if success:
                     logger.info(f"Manifest sent successfully for DA: {da_id}")
+                    if settings.AWS_SQS_DELIVERY_QUEUE_URL:
+                        sqs_service.sqs_client.send_message(
+                            QueueUrl=settings.AWS_SQS_DELIVERY_QUEUE_URL,
+                            MessageBody=json.dumps({'da_id': da_id})
+                        )
+                        logger.info(f"Delivery tracking triggered for DA: {da_id}")
+
                     self.stdout.write(
                         self.style.SUCCESS(
                             f"Manifest sent to {licensee_id} for DA {da_id}: {len(manifest['assets'])} assets"

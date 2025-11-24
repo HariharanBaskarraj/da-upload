@@ -36,6 +36,8 @@ class Command(BaseCommand):
                 scheduler_service = SchedulerService()
                 
                 missing_assets_info = missing_assets_service.check_missing_assets_for_da(da_id)
+
+                logger.info(f"missing_assets_info: {missing_assets_info}")
                 
                 if missing_assets_info.get('has_missing_assets'):
                     logger.warning(

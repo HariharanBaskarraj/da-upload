@@ -44,17 +44,20 @@ class ManifestService:
         licensee_info = self._get_licensee_info(licensee_id)
         logger.info(f"[MANIFEST] Licensee Info retrieved for {licensee_id}")
 
-        studio_config = self._get_studio_config(da_info.get('Internal_Studio_ID', settings.DEFAULT_STUDIO_ID))
+        #studio_config = (da_info.get('Internal_Studio_ID') or "").strip() or settings.DEFAULT_STUDIO_ID
+
+        studio_config = self._get_studio_config((da_info.get('Internal_Studio_ID') or "").strip() or settings.DEFAULT_STUDIO_ID)
+        #studio_config = self._get_studio_config(da_info.get('Internal_Studio_ID', settings.DEFAULT_STUDIO_ID))
         logger.info(f"[MANIFEST] Studio Config resolved: {studio_config.get('Studio_Name', 'Unknown')}")
 
         # Components -> component folders
         components = self._get_components_for_da(da_id)
         component_folders = self._get_component_folders(components)
-        logger.info(f"[MANIFEST] Component folders resolved: {len(component_folders)} entries")
+        logger.info(f"[MANIFEST] Component folders resolved: {len(component_folders)} entries -- {component_folders}")
 
         # Assets (filtering by folder + S3)
         assets = self._get_assets_for_title_and_components(title_id, version_id, component_folders)
-        logger.info(f"[MANIFEST] Final filtered assets count: {len(assets)}")
+        logger.info(f"[MANIFEST] Final filtered assets count: {len(assets)} -- {assets}")
 
         # Build manifest
         manifest = self._build_manifest(da_info, title_info, licensee_info, studio_config, assets)
@@ -155,6 +158,7 @@ class ManifestService:
                 FilterExpression='ComponentId = :comp_id',
                 ExpressionAttributeValues={':comp_id': {'S': component_id}}
             )
+            logger.info(f"component-config-rsponse: {response} -- {component_id}")
 
             items = response.get('Items', [])
             if not items:
@@ -214,6 +218,8 @@ class ManifestService:
             },
         )
 
+        logger.info(f"_get_assets_for_title_and_components response: {response}")
+
         all_assets_raw = response.get("Items", [])
         logger.info(f"[ASSETS] DynamoDB returned {len(all_assets_raw)} assets")
 
@@ -229,15 +235,18 @@ class ManifestService:
             raw_folder_path = asset.get("Folder_Path", "") or ""
             folder_path = raw_folder_path.replace("\\", "/").strip("/")
 
+            logger.info(f"Path details: {folder_path} --{raw_folder_path} ")
+
             # Normalize by stripping known Title.Version prefix if present
             for prefix in prefix_candidates:
                 if folder_path.startswith(prefix):
                     folder_path = folder_path[len(prefix):]
                     break
-
+            logger.info(f"after for loopfolder_path {folder_path}")
             # Determine if folder_path matches any configured component folders
             matched = False
             for comp_folder in component_folders:
+                logger.info(f"comp_folder {comp_folder} -- {folder_path}")
                 if folder_path.startswith(comp_folder):
                     matched = True
                     break
@@ -250,6 +259,7 @@ class ManifestService:
             # Check S3 - use raw_folder_path as-is (it already contains Title.Version prefix)
             # Just clean up any backslashes and extra slashes
             full_s3_path = raw_folder_path.replace("\\", "/").strip("/")
+            logger.info(f"fi=ull_s3_path : {full_s3_path} -- {filename}")
             if not self._asset_exists_in_s3(filename, full_s3_path):
                 logger.info(f"[ASSETS] REJECT '{filename}': not present in S3")
                 continue

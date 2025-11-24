@@ -35,6 +35,8 @@ class MissingAssetsService:
             components = self._get_components_for_da(da_id)
             
             all_missing_components = []
+
+            logger.info(f"components: {components}")
             
             for component in components:
                 component_id = component.get('Component_ID')
@@ -49,6 +51,8 @@ class MissingAssetsService:
                 missing_assets = self._check_component_assets(
                     title_id, version_id, component_id
                 )
+
+                logger.info(f"missing_assets: {missing_assets}")
                 
                 if missing_assets:
                     all_missing_components.append({
@@ -58,7 +62,8 @@ class MissingAssetsService:
                     logger.warning(
                         f"[MISSING_ASSETS] Component {component_id} has {len(missing_assets)} missing assets"
                     )
-            
+            logger.info(f"Check for the result")
+
             result = {
                 'da_id': da_id,
                 'title_id': title_id,
@@ -71,6 +76,8 @@ class MissingAssetsService:
                 'missing_components': all_missing_components,
                 'total_missing_count': sum(len(c['missing_assets']) for c in all_missing_components)
             }
+
+            logger.info(f"Result of missing asset info {result}")
             
             logger.info(
                 f"[MISSING_ASSETS] DA {da_id}: {result['total_missing_count']} missing assets "
@@ -86,7 +93,7 @@ class MissingAssetsService:
     def _check_component_assets(self, title_id: str, version_id: str, component_id: str) -> List[Dict]:
         try:
             folder_structure = self._get_component_folder_structure(component_id)
-            
+            logger.info(f"Expected_Assets: {folder_structure}")
             if not folder_structure:
                 logger.warning(f"[MISSING_ASSETS] No folder structure found for component: {component_id}")
                 return []
@@ -94,6 +101,8 @@ class MissingAssetsService:
             expected_assets = self._get_expected_assets_for_component(
                 title_id, version_id, folder_structure
             )
+
+            logger.info(f"Expected_Assets: {expected_assets}")
             
             if not expected_assets:
                 logger.info(f"[MISSING_ASSETS] No expected assets for component: {component_id}")
@@ -107,7 +116,7 @@ class MissingAssetsService:
                 folder_path = asset.get('Folder_Path', '').replace('\\', '/').strip('/')
                 
                 exists = self._check_asset_in_s3(filename, folder_path)
-                
+                logger.info(f"inside exists: {exists}")
                 if not exists:
                     missing_assets.append({
                         'asset_id': asset_id,
@@ -117,6 +126,8 @@ class MissingAssetsService:
                     })
                     logger.warning(f"[MISSING_ASSETS] Missing asset: {filename}")
             
+
+            logger.info(f"inside missing_assets: {missing_assets}")
             return missing_assets
             
         except Exception as e:
@@ -177,23 +188,30 @@ class MissingAssetsService:
                     ':version_id': version_id
                 }
             )
+            logger.info(f"Response of the AssetTable: {response}")
             
             all_assets = response.get('Items', [])
             
+            logger.info(f"All_assets: {all_assets}")
             matching_assets = []
             prefix_candidates = [f"{title_id}.{version_id}/", f"{title_id}_{version_id}/"]
             
+            logger.info(f"prefix_candidates: {prefix_candidates}")
             for asset in all_assets:
                 folder_path = asset.get('Folder_Path', '').replace('\\', '/').strip('/')
-                
+                logger.info(f"folder_path: {folder_path}")
                 for prefix in prefix_candidates:
                     if folder_path.startswith(prefix):
                         folder_path = folder_path[len(prefix):]
+                        logger.info(f"inside startwith prefix folder_path: {folder_path}")
                         break
                 
                 if folder_path.startswith(folder_structure):
+                    logger.info(f"inside startwith folder_structure folder_path: {folder_path} --{folder_structure}")
                     matching_assets.append(asset)
-            
+                
+
+            logger.info(f"inside smatching_assets: {matching_assets} --{folder_structure}")
             return matching_assets
             
         except Exception as e:
