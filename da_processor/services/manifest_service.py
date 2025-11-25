@@ -11,11 +11,7 @@ logger = logging.getLogger(__name__)
 
 class ManifestService:
     """
-    ManifestService
-    - Generates a manifest JSON for a given DA ID.
-    - Reads DA/title/licensee/components/assets from DynamoDB.
-    - Filters assets by component folder mapping and S3 existence.
-    - Returns manifest dict with main_body + assets list.
+    ManifestService - corrected field mappings and S3 handling with logging.
     """
 
     def __init__(self):
@@ -30,36 +26,29 @@ class ManifestService:
     def generate_manifest(self, da_id: str) -> Dict:
         logger.info(f"[MANIFEST] Generating manifest for DA ID: {da_id}")
 
-        # Fetch base metadata
         da_info = self._get_da_info(da_id)
-        logger.info(f"[MANIFEST] DA Info retrieved for ID={da_id}")
+        logger.debug(f"[MANIFEST] DA Info: {da_info}")
 
         title_id = da_info.get('Title_ID')
         version_id = da_info.get('Version_ID')
         licensee_id = da_info.get('Licensee_ID')
 
         title_info = self._get_title_info(title_id, version_id)
-        logger.info(f"[MANIFEST] Title Info retrieved for {title_id}/{version_id}")
+        logger.debug(f"[MANIFEST] Title Info: {title_info}")
 
         licensee_info = self._get_licensee_info(licensee_id)
-        logger.info(f"[MANIFEST] Licensee Info retrieved for {licensee_id}")
-
-        #studio_config = (da_info.get('Internal_Studio_ID') or "").strip() or settings.DEFAULT_STUDIO_ID
+        logger.debug(f"[MANIFEST] Licensee Info: {licensee_info}")
 
         studio_config = self._get_studio_config((da_info.get('Internal_Studio_ID') or "").strip() or settings.DEFAULT_STUDIO_ID)
-        #studio_config = self._get_studio_config(da_info.get('Internal_Studio_ID', settings.DEFAULT_STUDIO_ID))
         logger.info(f"[MANIFEST] Studio Config resolved: {studio_config.get('Studio_Name', 'Unknown')}")
 
-        # Components -> component folders
         components = self._get_components_for_da(da_id)
         component_folders = self._get_component_folders(components)
         logger.info(f"[MANIFEST] Component folders resolved: {len(component_folders)} entries -- {component_folders}")
 
-        # Assets (filtering by folder + S3)
         assets = self._get_assets_for_title_and_components(title_id, version_id, component_folders)
-        logger.info(f"[MANIFEST] Final filtered assets count: {len(assets)} -- {assets}")
+        logger.info(f"[MANIFEST] Final filtered assets count: {len(assets)}")
 
-        # Build manifest
         manifest = self._build_manifest(da_info, title_info, licensee_info, studio_config, assets)
         logger.info(f"[MANIFEST] Manifest generated successfully for DA ID: {da_id}")
         return manifest
@@ -139,18 +128,15 @@ class ManifestService:
 
         items = response.get('Items', [])
         components = [self._deserialize_item(item) for item in items]
-        logger.info(f"[COMPONENTS] Found {len(components)} components for DA: {da_id}")
+        logger.debug(f"[COMPONENTS] Found components: {components}")
         return components
 
     def _get_component_folders(self, components: List[Dict]) -> List[str]:
-        """
-        Returns a list of folder strings (normalized, without leading/trailing slashes)
-        Example result: ["Video/DV HDR", "Video/UHD SDR"]
-        """
         folders = []
         for comp in components:
             component_id = comp.get('Component_ID')
             if not component_id:
+                logger.debug("[FOLDERS] component record missing Component_ID, skipping")
                 continue
 
             response = self.dynamodb.scan(
@@ -158,7 +144,7 @@ class ManifestService:
                 FilterExpression='ComponentId = :comp_id',
                 ExpressionAttributeValues={':comp_id': {'S': component_id}}
             )
-            logger.info(f"component-config-rsponse: {response} -- {component_id}")
+            logger.debug(f"component-config-response: {response} -- {component_id}")
 
             items = response.get('Items', [])
             if not items:
@@ -185,10 +171,8 @@ class ManifestService:
             else settings.AWS_ASSET_REPO_BUCKET
         )
 
-        # Build the real S3 key
-        s3_key = f"{folder_path}/{filename}".replace("//", "/")
-
-        logger.info(f"[S3] Checking S3 for bucket={bucket}, key={s3_key}")
+        s3_key = f"{folder_path}".replace("//", "/").strip("/")
+        logger.debug(f"[S3] Checking S3 existence for bucket={bucket}, key={s3_key}")
 
         try:
             self.s3_client.head_object(Bucket=bucket, Key=s3_key)
@@ -204,7 +188,6 @@ class ManifestService:
             logger.error(f"[S3] Unexpected error checking object {s3_key} in bucket {bucket}: {e}")
             return False
 
-
     def _get_assets_for_title_and_components(self, title_id: str, version_id: str, component_folders: List[str]) -> List[Dict]:
         logger.info(f"[ASSETS] Querying assets for Title={title_id}, Version={version_id}")
 
@@ -218,54 +201,48 @@ class ManifestService:
             },
         )
 
-        logger.info(f"_get_assets_for_title_and_components response: {response}")
+        logger.debug(f"_get_assets_for_title_and_components response: {response}")
 
         all_assets_raw = response.get("Items", [])
-        logger.info(f"[ASSETS] DynamoDB returned {len(all_assets_raw)} assets")
-
         all_assets = [self._deserialize_item(item) for item in all_assets_raw]
-        filtered_assets = []
 
-        # Prepare prefix(s) we expect and will remove for matching
+        filtered_assets = []
         prefix_candidates = [f"{title_id}.{version_id}/", f"{title_id}_{version_id}/"]
 
         for asset in all_assets:
             filename = asset.get("Filename", "")
-            asset_id = asset.get("AssetId", "")
+            asset_id_from_table = asset.get("AssetId") or asset.get("Asset_ID") or asset.get("Asset_Id") or ""
             raw_folder_path = asset.get("Folder_Path", "") or ""
             folder_path = raw_folder_path.replace("\\", "/").strip("/")
 
-            logger.info(f"Path details: {folder_path} --{raw_folder_path} ")
+            logger.debug(f"Asset raw folder_path: '{raw_folder_path}' -> normalized '{folder_path}' (filename={filename}, assetId={asset_id_from_table})")
 
-            # Normalize by stripping known Title.Version prefix if present
+            # normalize prefix removal for matching components
+            normalized_for_match = folder_path
             for prefix in prefix_candidates:
-                if folder_path.startswith(prefix):
-                    folder_path = folder_path[len(prefix):]
+                if normalized_for_match.startswith(prefix):
+                    normalized_for_match = normalized_for_match[len(prefix):]
                     break
-            logger.info(f"after for loopfolder_path {folder_path}")
-            # Determine if folder_path matches any configured component folders
+
             matched = False
             for comp_folder in component_folders:
-                logger.info(f"comp_folder {comp_folder} -- {folder_path}")
-                if folder_path.startswith(comp_folder):
+                if normalized_for_match.startswith(comp_folder):
                     matched = True
                     break
 
             if not matched:
-                # Asset doesn't belong to any requested component folder
                 logger.info(f"[ASSETS] REJECT '{filename}': folder '{raw_folder_path}' does not map to components")
                 continue
 
-            # Check S3 - use raw_folder_path as-is (it already contains Title.Version prefix)
-            # Just clean up any backslashes and extra slashes
             full_s3_path = raw_folder_path.replace("\\", "/").strip("/")
-            logger.info(f"fi=ull_s3_path : {full_s3_path} -- {filename}")
+            logger.debug(f"Checking S3 for full path: {full_s3_path}")
             if not self._asset_exists_in_s3(filename, full_s3_path):
-                logger.info(f"[ASSETS] REJECT '{filename}': not present in S3")
+                logger.info(f"[ASSETS] REJECT '{filename}': not present in S3 at {full_s3_path}")
                 continue
 
-            # Accept asset
-            logger.info(f"[ASSETS] ACCEPT '{filename}'")
+            # attach the canonical AssetId as found in asset record as AssetId
+            asset['AssetId'] = asset_id_from_table
+            logger.info(f"[ASSETS] ACCEPT '{filename}' (AssetId={asset_id_from_table})")
             filtered_assets.append(asset)
 
         logger.info(f"[ASSETS] Filtered Assets Count: {len(filtered_assets)}")
@@ -304,21 +281,39 @@ class ManifestService:
         return manifest
 
     def _build_asset_data(self, asset: Dict) -> Dict:
+        """
+        Build asset dict for manifest:
+         - ensure asset_id is populated from asset's AssetId (DB field)
+         - include Folder_Path as-is
+         - compute file_size using S3 key derived from Folder_Path
+        """
         filename = asset.get('Filename', '')
-        folder_path = asset.get('Folder_Path', '').replace("\\", "/") or ""
+        folder_path = (asset.get('Folder_Path', '') or '').replace("\\", "/")
         version = int(asset.get('Version', 1)) if asset.get('Version') is not None else 1
-        asset_id = asset.get('Asset_ID', '')
-        checksum = asset.get('Checksum', '')
-        
-        file_status = self._determine_file_status(asset_id, checksum)
 
-        file_size_mb = self._get_file_size_from_s3(filename, asset_id)
+        # Prefer exact field names returned by DynamoDB asset table
+        asset_id = asset.get('AssetId') or asset.get('Asset_ID') or asset.get('Asset_Id') or ''
+        if not asset_id:
+            logger.error(f"[BUILD_ASSET] Missing AssetId for asset record: {asset}. This asset will carry empty id in manifest.")
+        else:
+            logger.debug(f"[BUILD_ASSET] Using AssetId={asset_id} for filename={filename}")
+
+        checksum = asset.get('Checksum', '')
+
+        # compute file size from S3 using folder_path (which already contains filename in your DB)
+        file_size_mb = self._get_file_size_from_s3(filename, asset)
+
+        # file_path: keep as stored (Folder_Path), but ensure normalized single slashes
+        file_path = folder_path.strip("/")
 
         return {
+            # manifest format - use lower snake for manifest consumers
             "asset_id": asset_id,
-            "file_status": file_status,
+            # also include the DB key canonical name so orchestrator can map to Dynamo primary key
+            "Asset_Id": asset_id,
+            "file_status": self._determine_file_status(asset_id, checksum),
             "file_name": filename,
-            "file_path": f"{folder_path}{filename}",
+            "file_path": file_path,
             "checksum": checksum,
             "file_size_mb": file_size_mb,
             "studio_asset_id": asset.get('Studio_Asset_ID', ''),
@@ -327,41 +322,55 @@ class ManifestService:
             "studio_revision_urgency": asset.get('Studio_Revision_Urgency', ''),
             "revision_id": version,
         }
-    
+
     def _determine_file_status(self, asset_id: str, current_checksum: str) -> str:
         try:
+            if not asset_id:
+                logger.debug("[FILE_STATUS] Empty asset_id provided to determine file status -> treat as New")
+                return "New"
+
             response = self.dynamodb.scan(
                 TableName=settings.DYNAMODB_FILE_DELIVERY_TABLE,
-                FilterExpression='Asset_ID = :asset_id',
+                FilterExpression='Asset_Id = :asset_id',
                 ExpressionAttributeValues={':asset_id': {'S': asset_id}}
             )
-            
+
             items = response.get('Items', [])
-            
+
             if not items:
                 return "New"
-            
+
             existing_item = self._deserialize_item(items[0])
             existing_checksum = existing_item.get('Checksum', '')
-            
+
             if existing_checksum == current_checksum:
                 return "No Change"
             else:
                 return "Revised"
-                
+
         except Exception as e:
             logger.warning(f"Could not determine file status for asset {asset_id}: {e}")
             return "New"
 
-    def _get_file_size_from_s3(self, filename: str, asset_id: str) -> float:
-        bucket = settings.AWS_WATERMARKED_BUCKET if filename.lower().endswith(".mov") else settings.AWS_ASSET_REPO_BUCKET
+    def _get_file_size_from_s3(self, filename: str, asset: dict) -> float:
+        """
+        Use asset['Folder_Path'] as the full S3 key (it already contains filename).
+        """
         try:
-            response = self.s3_client.head_object(Bucket=bucket, Key=asset_id)
+            bucket = settings.AWS_WATERMARKED_BUCKET if filename.lower().endswith(".mov") else settings.AWS_ASSET_REPO_BUCKET
+            s3_key = (asset.get("Folder_Path", "") or "").replace("\\", "/").strip("/")
+
+            if not s3_key:
+                logger.warning(f"[S3_SIZE] Missing Folder_Path for asset {asset.get('AssetId', '')} (filename={filename})")
+                return 0.0
+
+            logger.debug(f"[S3_SIZE] Checking S3 size for bucket={bucket}, key={s3_key}")
+            response = self.s3_client.head_object(Bucket=bucket, Key=s3_key)
             size_bytes = response.get("ContentLength", 0)
             size_mb = round(size_bytes / (1024 * 1024), 2)
             return size_mb
         except Exception as e:
-            logger.warning(f"[S3_SIZE] Unable to get size for '{filename}' ({asset_id}): {e}")
+            logger.warning(f"[S3_SIZE] Unable to get size for '{filename}' ({asset.get('Folder_Path', '')}): {e}")
             return 0.0
 
     # ----------------------------------------------------------------------
