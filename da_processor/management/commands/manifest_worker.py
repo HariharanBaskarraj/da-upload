@@ -39,22 +39,36 @@ class Command(BaseCommand):
                 
                 manifest = manifest_service.generate_manifest(da_id)
                 
-                logger.info(f"Manifest generated: Title={manifest['main_body']['title_id']}, Assets={len(manifest['assets'])}")
+                assets_count = len(manifest.get('assets', []))
+                logger.info(f"Manifest generated: Title={manifest['main_body']['title_id']}, Assets={assets_count}")
+                
+                if assets_count == 0:
+                    logger.warning(f"No assets available for DA {da_id}, skipping manifest send")
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"DA {da_id}: No assets available, manifest not sent"
+                        )
+                    )
+                    return
                 
                 success = sqs_service.send_manifest_to_licensee(licensee_id, manifest)
                 
                 if success:
                     logger.info(f"Manifest sent successfully for DA: {da_id}")
+                    
                     if settings.AWS_SQS_DELIVERY_QUEUE_URL:
-                        sqs_service.sqs_client.send_message(
-                            QueueUrl=settings.AWS_SQS_DELIVERY_QUEUE_URL,
-                            MessageBody=json.dumps({'da_id': da_id})
-                        )
-                        logger.info(f"Delivery tracking triggered for DA: {da_id}")
+                        try:
+                            sqs_service.sqs_client.send_message(
+                                QueueUrl=settings.AWS_SQS_DELIVERY_QUEUE_URL,
+                                MessageBody=json.dumps({'da_id': da_id})
+                            )
+                            logger.info(f"Delivery tracking triggered for DA: {da_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to trigger delivery tracking: {e}")
 
                     self.stdout.write(
                         self.style.SUCCESS(
-                            f"Manifest sent to {licensee_id} for DA {da_id}: {len(manifest['assets'])} assets"
+                            f"Manifest sent to {licensee_id} for DA {da_id}: {assets_count} assets"
                         )
                     )
                     

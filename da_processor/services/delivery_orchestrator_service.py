@@ -31,36 +31,38 @@ class DeliveryOrchestratorService:
 
             if not self._is_within_delivery_window(da_info):
                 logger.info(f"[DELIVERY] DA {da_id} is outside delivery window, skipping")
-                return {'success': False, 'reason': 'outside_delivery_window', 'da_id': da_id}
+                return {
+                    'success': False,
+                    'reason': 'outside_delivery_window',
+                    'da_id': da_id
+                }
 
             manifest = self.manifest_service.generate_manifest(da_id)
             assets = manifest.get('assets', [])
 
             if not assets:
-                logger.info(f"[DELIVERY] No assets to deliver for DA {da_id}")
-                return {'success': False, 'reason': 'no_assets', 'da_id': da_id}
+                logger.info(f"[DELIVERY] No assets available for DA {da_id}, skipping delivery tracking")
+                return {
+                    'success': False,
+                    'reason': 'no_assets',
+                    'da_id': da_id
+                }
 
             for asset_data in assets:
-                # asset_data includes both 'asset_id' and 'Asset_Id' (populated by ManifestService)
-                asset_id = asset_data.get('Asset_Id') or asset_data.get('asset_id') or ''
+                asset_id = asset_data.get('Asset_Id') or asset_data.get('asset_id') or asset_data.get('Asset_ID') or ''
+                
                 if not asset_id:
-                    logger.error(f"[DELIVERY] Skipping asset with missing id in manifest asset_data: {asset_data}")
+                    logger.error(f"[DELIVERY] Skipping asset with missing id: {asset_data}")
                     continue
 
-                # Folder_Path already stored in file_path or asset_data; preserve original Folder_Path if present
-                folder_path = asset_data.get('file_path') or asset_data.get('file_path', '')
-                # We prefer the original Folder_Path (which ManifestService stored under file_path already)
-                folder_path_db = asset_data.get('file_path') or asset_data.get('file_path', '')
-
                 asset_dict = {
-                    'Asset_Id': asset_id,
+                    'Asset_ID': asset_id,
                     'Filename': asset_data.get('file_name', ''),
                     'Checksum': asset_data.get('checksum', ''),
                     'Title_ID': manifest['main_body'].get('title_id', ''),
                     'Version_ID': manifest['main_body'].get('version_id', ''),
                     'Version': asset_data.get('revision_id', 1),
-                    # Use the Folder_Path as-is (manifest stores file_path that is the DB Folder_Path)
-                    'Folder_Path': asset_data.get('file_path', ''),
+                    'Folder_Path': asset_data.get('folder_path', ''),
                     'Studio_Asset_ID': asset_data.get('studio_asset_id', ''),
                     'Studio_Revision_Notes': asset_data.get('studio_revision_notes', ''),
                     'Studio_Revision_Urgency': asset_data.get('studio_revision_urgency', '')
@@ -68,13 +70,19 @@ class DeliveryOrchestratorService:
 
                 file_status = asset_data.get('file_status', 'NEW')
 
-                logger.debug(f"[DELIVERY] Tracking asset: DA={da_id}, Asset_Id={asset_id}, Filename={asset_dict['Filename']}, Status={file_status}")
+                logger.debug(
+                    f"[DELIVERY] Tracking asset: DA={da_id}, Asset_ID={asset_id}, "
+                    f"Filename={asset_dict['Filename']}, Status={file_status}"
+                )
+                
                 try:
                     self.file_delivery_service.track_file_delivery(da_id, asset_dict, file_status)
                 except Exception as e:
-                    logger.error(f"[DELIVERY] Error tracking file delivery for DA={da_id}, Asset_Id={asset_id}: {e}", exc_info=True)
+                    logger.error(
+                        f"[DELIVERY] Error tracking file delivery for DA={da_id}, "
+                        f"Asset_ID={asset_id}: {e}", exc_info=True
+                    )
 
-            # Update components and DA status
             components = self.file_delivery_service._get_components_for_da(da_id)
             for component in components:
                 component_id = component.get('Component_ID')
@@ -86,14 +94,24 @@ class DeliveryOrchestratorService:
                         da_id, component_id, title_id, version_id
                     )
                 except Exception as e:
-                    logger.error(f"[DELIVERY] Error updating component status for DA={da_id}, Component={component_id}: {e}", exc_info=True)
+                    logger.error(
+                        f"[DELIVERY] Error updating component status for DA={da_id}, "
+                        f"Component={component_id}: {e}", exc_info=True
+                    )
 
             try:
                 self.file_delivery_service.update_da_delivery_status(da_id)
             except Exception as e:
                 logger.error(f"[DELIVERY] Error updating DA status for DA={da_id}: {e}", exc_info=True)
 
-            new_or_revised_count = sum(1 for asset in assets if asset.get('file_status') in ['New', 'NEW', 'Revised', 'REVISED', 'Revised', 'NEW'])
+            new_or_revised_count = sum(
+                1 for asset in assets 
+                if asset.get('file_status', '').upper() in ['NEW', 'REVISED']
+            )
+
+            logger.info(
+                f"[DELIVERY] DA {da_id}: {new_or_revised_count} new/revised out of {len(assets)} total assets"
+            )
 
             if new_or_revised_count > 0:
                 licensee_id = da_info.get('Licensee_ID')
@@ -105,6 +123,7 @@ class DeliveryOrchestratorService:
                     if success:
                         self._update_next_manifest_check(da_id, licensee_id)
                         logger.info(f"[DELIVERY] Manifest sent successfully for DA {da_id}")
+                        
                         return {
                             'success': True,
                             'da_id': da_id,
@@ -114,13 +133,27 @@ class DeliveryOrchestratorService:
                         }
                     else:
                         logger.error(f"[DELIVERY] Failed to send manifest for DA {da_id}")
-                        return {'success': False, 'reason': 'sqs_send_failed', 'da_id': da_id}
+                        return {
+                            'success': False,
+                            'reason': 'sqs_send_failed',
+                            'da_id': da_id
+                        }
                 else:
                     logger.info(f"[DELIVERY] Skipping manifest send due to frequency limit for DA {da_id}")
-                    return {'success': True, 'da_id': da_id, 'manifest_sent': False, 'reason': 'frequency_limit'}
+                    return {
+                        'success': True,
+                        'da_id': da_id,
+                        'manifest_sent': False,
+                        'reason': 'frequency_limit'
+                    }
             else:
                 logger.info(f"[DELIVERY] No new or revised files for DA {da_id}, skipping manifest send")
-                return {'success': True, 'da_id': da_id, 'manifest_sent': False, 'reason': 'no_changes'}
+                return {
+                    'success': True,
+                    'da_id': da_id,
+                    'manifest_sent': False,
+                    'reason': 'no_changes'
+                }
 
         except Exception as e:
             logger.error(f"[DELIVERY] Error processing delivery for DA {da_id}: {e}", exc_info=True)
@@ -210,12 +243,20 @@ class DeliveryOrchestratorService:
         enriched_assets = []
 
         tracked_files = self.file_delivery_service.get_files_for_da(da_id)
-        # tracked_files items are Dynamo format - FileDeliveryService returns raw Items
-        file_status_map = {f.get('Asset_Id') or f.get('AssetId') or f.get('Asset_Id'): f.get('File_Status', 'NEW') for f in tracked_files}
+        file_status_map = {
+            f.get('Asset_ID') or f.get('Asset_Id') or f.get('asset_id', ''): f.get('File_Status', 'NEW') 
+            for f in tracked_files
+        }
 
         for asset in manifest.get('assets', []):
             asset_copy = asset.copy()
-            asset_id = asset_copy.get('asset_id') or asset_copy.get('Asset_Id') or ''
+            asset_id = (
+                asset_copy.get('asset_id') or 
+                asset_copy.get('Asset_Id') or 
+                asset_copy.get('Asset_ID') or 
+                ''
+            )
+            
             file_status = file_status_map.get(asset_id, 'NEW')
 
             if file_status.upper() in ['NO_CHANGE', 'NO CHANGE']:
