@@ -9,6 +9,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from da_processor.processors.json_processor import JSONProcessor
 from da_processor.processors.csv_processor import CSVProcessor
 from da_processor.serializers import DARequestSerializer, DAResponseSerializer, ErrorResponseSerializer, HealthCheckResponseSerializer
+from da_processor.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,15 @@ class DistributionAuthorizationAPIView(APIView):
     )
 
     def post(self, request):
+        logger.info(
+            "DA submission received",
+            extra={
+                'event_type': 'REQUEST',
+                'content_type': request.content_type,
+                'method': request.method
+            }
+        )
+
         try:
             content_type = request.content_type
 
@@ -206,10 +216,7 @@ class DistributionAuthorizationAPIView(APIView):
                 result = processor.process(payload)
             elif 'multipart/form-data' in content_type or 'text/csv' in content_type:
                 if 'file' not in request.FILES:
-                    return Response(
-                        {'error': 'No file provided in request'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                    raise ValidationError('No file provided in request')
                 
                 csv_file = request.FILES['file']
                 csv_content = csv_file.read().decode('utf-8')
@@ -217,21 +224,35 @@ class DistributionAuthorizationAPIView(APIView):
                 processor = CSVProcessor()
                 result = processor.process(csv_content)
             else:
-                return Response(
-                    {'error': f'Unsupported content type: {content_type}'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                raise ValidationError(f'Unsupported content type: {content_type}')
+            
+            logger.info(
+                "DA submission successful",
+                extra={
+                    'event_type': 'RESPONSE',
+                    'da_id': result.get('id'),
+                    'title_id': result.get('title_id'),
+                    'status_code': 201
+                }
+            )
 
             return Response(result, status=status.HTTP_201_CREATED)
 
         except ValueError as e:
-            logger.error(f"Validation error: {str(e)}")
+            logger.error(
+                f"Validation error: {str(e)}",
+                extra={'event_type': 'ERROR', 'error_type': 'ValidationError'}
+            )
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
-            logger.error(f"Error processing DA upload: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error processing DA: {str(e)}",
+                extra={'event_type': 'ERROR', 'error_type': type(e).__name__},
+                exc_info=True
+            )
             return Response(
                 {'error': 'Internal server error processing DA upload'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

@@ -7,8 +7,8 @@ from da_processor.services.manifest_service import ManifestService
 from da_processor.services.sqs_service import SQSService
 from da_processor.services.scheduler_service import SchedulerService
 
-logger = logging.getLogger(__name__)
-
+from da_processor.utils.logging_utils import get_logger
+logger = get_logger(__name__)
 
 class Command(BaseCommand):
     help = 'Start manifest generation worker that polls SQS queue'
@@ -28,10 +28,16 @@ class Command(BaseCommand):
                 licensee_id = message.get('licensee_id')
                 
                 if not da_id or not licensee_id:
-                    logger.error(f"Missing da_id or licensee_id in message: {message}")
+                    logger.error(
+                        "Missing required fields in message",
+                        extra={'event_type': 'ERROR', 'da_id': da_id, 'licensee_id': licensee_id}
+                    )
                     return
                 
-                logger.info(f"Generating manifest for DA: {da_id}, Licensee: {licensee_id}")
+                logger.info(
+                    "Generating manifest",
+                    extra={'event_type': 'PROCESS', 'da_id': da_id, 'licensee_id': licensee_id}
+                )
                 
                 manifest_service = ManifestService()
                 sqs_service = SQSService()
@@ -40,10 +46,22 @@ class Command(BaseCommand):
                 manifest = manifest_service.generate_manifest(da_id)
                 
                 assets_count = len(manifest.get('assets', []))
-                logger.info(f"Manifest generated: Title={manifest['main_body']['title_id']}, Assets={assets_count}")
+                
+                logger.info(
+                    "Manifest generated",
+                    extra={
+                        'event_type': 'PROCESS',
+                        'da_id': da_id,
+                        'title_id': manifest['main_body']['title_id'],
+                        'assets_count': assets_count
+                    }
+                )
                 
                 if assets_count == 0:
-                    logger.warning(f"No assets available for DA {da_id}, skipping manifest send")
+                    logger.warning(
+                        "No assets available, skipping manifest send",
+                        extra={'event_type': 'PROCESS', 'da_id': da_id}
+                    )
                     self.stdout.write(
                         self.style.WARNING(
                             f"DA {da_id}: No assets available, manifest not sent"
@@ -54,7 +72,10 @@ class Command(BaseCommand):
                 success = sqs_service.send_manifest_to_licensee(licensee_id, manifest)
                 
                 if success:
-                    logger.info(f"Manifest sent successfully for DA: {da_id}")
+                    logger.info(
+                        "Manifest sent successfully",
+                        extra={'event_type': 'PROCESS', 'da_id': da_id, 'licensee_id': licensee_id}
+                    )
                     
                     if settings.AWS_SQS_DELIVERY_QUEUE_URL:
                         try:
@@ -62,9 +83,16 @@ class Command(BaseCommand):
                                 QueueUrl=settings.AWS_SQS_DELIVERY_QUEUE_URL,
                                 MessageBody=json.dumps({'da_id': da_id})
                             )
-                            logger.info(f"Delivery tracking triggered for DA: {da_id}")
+                            logger.info(
+                                f"Delivery tracking triggered for DA: {da_id}",
+                                extra={'event_type': 'PROCESS', 'da_id': da_id, 'licensee_id': licensee_id}
+                            )
                         except Exception as e:
-                            logger.error(f"Failed to trigger delivery tracking: {e}")
+                            logger.error(
+                                "Failed to trigger delivery tracking",
+                                extra={'event_type': 'ERROR', 'da_id': da_id},
+                                exc_info=True
+                            )
 
                     self.stdout.write(
                         self.style.SUCCESS(
@@ -73,9 +101,15 @@ class Command(BaseCommand):
                     )
                     
                     scheduler_service.delete_schedule(da_id)
-                    logger.info(f"Schedule deleted for DA: {da_id}")
+                    logger.info(
+                        f"Schedule deleted for DA: {da_id}",
+                        extra={'event_type': 'PROCESS', 'da_id': da_id, 'licensee_id': licensee_id}
+                    )
                 else:
-                    logger.error(f"Failed to send manifest for DA: {da_id}")
+                    logger.error(
+                        "Failed to send manifest",
+                        extra={'event_type': 'ERROR', 'da_id': da_id, 'licensee_id': licensee_id}
+                    )
                     
                     sqs_service.send_to_dlq(
                         {'da_id': da_id, 'licensee_id': licensee_id, 'manifest': manifest},
@@ -83,7 +117,11 @@ class Command(BaseCommand):
                     )
                 
             except Exception as e:
-                logger.error(f"Error processing manifest message: {e}", exc_info=True)
+                logger.error(
+                    "Error processing manifest message",
+                    extra={'event_type': 'ERROR', 'da_id': message.get('da_id')},
+                    exc_info=True
+                )
                 
                 try:
                     sqs_service = SQSService()
@@ -92,7 +130,7 @@ class Command(BaseCommand):
                         str(e)
                     )
                 except Exception as dlq_error:
-                    logger.error(f"Failed to send to DLQ: {dlq_error}")
+                    logger.error("Failed to send to DLQ", extra={'event_type': 'ERROR'}, exc_info=True)
         
         processor = SQSProcessorService(queue_url, process_manifest_message)
         

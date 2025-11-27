@@ -30,6 +30,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'da_processor.middleware.correlation_middleware.CorrelationIdMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -91,16 +92,23 @@ LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
-            'style': '{',
+        'json': {
+            '()': 'da_processor.utils.logging_utils.CustomJsonFormatter',
         },
+        # 'verbose': {
+        #     'format': '{levelname} {asctime} {module} {message}',
+        #     'style': '{',
+        # },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+            'formatter': 'json',  # Use JSON formatter for production
         },
+        # 'console_verbose': {
+        #     'class': 'logging.StreamHandler',
+        #     'formatter': 'verbose',  # Fallback for local development
+        # },
     },
     'root': {
         'handlers': ['console'],
@@ -115,6 +123,16 @@ LOGGING = {
         'da_processor': {
             'handlers': ['console'],
             'level': 'DEBUG',
+            'propagate': False,
+        },
+        'boto3': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'botocore': {
+            'handlers': ['console'],
+            'level': 'WARNING',
             'propagate': False,
         },
     },
@@ -153,6 +171,7 @@ MANIFEST_CHECK_INTERVAL = int(os.environ.get('MANIFEST_CHECK_INTERVAL', '1800'))
 SES_FROM_EMAIL=os.environ.get('SES_FROM_EMAIL')
 
 REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',
         'rest_framework.parsers.MultiPartParser',
@@ -161,6 +180,7 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    'EXCEPTION_HANDLER': 'da_processor.exception_handlers.custom_exception_handler',
 }
 
 SPECTACULAR_SETTINGS = {
