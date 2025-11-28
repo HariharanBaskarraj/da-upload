@@ -190,8 +190,12 @@ class ManifestService:
             if filename.lower().endswith('.mov')
             else settings.AWS_ASSET_REPO_BUCKET
         )
-
-        s3_key = f"{folder_path}".replace("//", "/")+f"/{filename}"
+        if filename.lower().endswith('.mov'):
+            file_name= filename.strip('.mov')
+            wm_filename = f"{file_name}_WM1.mov"
+            s3_key = f"{folder_path}".replace("//", "/")+f"/{wm_filename}"
+        else:
+            s3_key = f"{folder_path}".replace("//", "/")+f"/{filename}"
         logger.debug(
             f"[S3] Checking S3 existence for bucket={bucket}, key={s3_key}")
 

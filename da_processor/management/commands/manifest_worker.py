@@ -72,7 +72,7 @@ class Command(BaseCommand):
                         )
                     )
                     
-                    scheduler_service.delete_schedule(da_id)
+                    #scheduler_service.delete_schedule(da_id)
                     logger.info(f"Schedule deleted for DA: {da_id}")
                 else:
                     logger.error(f"Failed to send manifest for DA: {da_id}")
