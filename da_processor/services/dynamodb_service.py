@@ -21,7 +21,8 @@ class DynamoDBService:
         self.studio_config_table = self.dynamodb.Table(
             settings.DYNAMODB_STUDIO_CONFIG_TABLE)
         self.watermark_table = settings.WATERMARK_JOB_TABLE
-        self.table = self.client.Table(self.watermark_table)
+        self.table = self.dynamodb.Table(self.watermark_table)
+
 
     def create_if_not_exists_title_info(self, title_data: Dict) -> Dict:
         try:
