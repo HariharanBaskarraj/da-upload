@@ -100,7 +100,7 @@ class S3Service:
 
             # 1️⃣ Copy
             try:
-                self.s3.copy_object(
+                self.s3_client.copy_object(
                     Bucket=licencee_cache,
                     Key=dest_key,
                     CopySource={"Bucket": watermark_cache, "Key": source_key}
@@ -112,7 +112,7 @@ class S3Service:
 
             # 2️⃣ Delete
             try:
-                self.s3.delete_object(
+                self.s3_client.delete_object(
                     Bucket=watermark_cache,
                     Key=source_key
                 )
