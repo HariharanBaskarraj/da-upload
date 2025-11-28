@@ -20,6 +20,8 @@ class DynamoDBService:
             settings.DYNAMODB_COMPONENT_TABLE)
         self.studio_config_table = self.dynamodb.Table(
             settings.DYNAMODB_STUDIO_CONFIG_TABLE)
+        self.watermark_table = settings.WATERMARK_JOB_TABLE
+        self.table = self.client.Table(self.watermark_table)
 
     def create_if_not_exists_title_info(self, title_data: Dict) -> Dict:
         try:
@@ -146,3 +148,20 @@ class DynamoDBService:
             logger.error(
                 f"Error fetching studio config for Studio_ID=1234: {e}")
             return None
+
+    def create_job(self, job_data):
+        #self.table.put_item(Item=job_data)
+        self.table.put_item(Item=job_data,ConditionExpression="attribute_not_exists(job_id)")
+        return job_data
+
+    def update_job(self, job_id, updates: dict):
+        update_expression = "SET " + ", ".join(f"#{k}= :{k}" for k in updates.keys())
+        expression_values = {f":{k}": v for k, v in updates.items()}
+        expression_names = {f"#{k}": k for k in updates.keys()}
+
+        self.table.update_item(
+            Key={"job_id": job_id},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=expression_values,
+            ExpressionAttributeNames=expression_names
+        )

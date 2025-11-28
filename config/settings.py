@@ -123,7 +123,13 @@ AWS_REGION = os.environ.get('AWS_REGION')
 AWS_DA_BUCKET = os.environ.get('AWS_DA_BUCKET')
 AWS_SQS_QUEUE_URL = os.environ.get('AWS_SQS_QUEUE_URL')
 AWS_ASSET_REPO_BUCKET = os.environ.get('AWS_ASSET_REPO_BUCKET', 'routerunner-poc-asset-repo')
-AWS_WATERMARKED_BUCKET = os.environ.get('AWS_WATERMARKED_BUCKET', 'routerunner-poc-watermarked-assets')
+AWS_WATERMARKED_BUCKET = os.environ.get('AWS_WATERMARKED_BUCKET', 'routerunner-poc-watermarkcache') ##Added newly
+AWS_LICENSEE_BUCKET = os.environ.get('AWS_LICENSEE_BUCKET','routerunner-poc-licenseecache') ##Added newly
+WATERMARK_JOB_TABLE = os.environ.get('WATERMARK_JOB_TABLE','routerunner-poc-watermark-assets') ##Added newly
+# API Configuration
+WATERMARKING_API_URL = os.environ.get('WATERMARKING_API_URL', 'https://api.example.com') ##Added newly
+WATERMARKING_API_BEARER_TOKEN = os.environ.get('WATERMARKING_API_BEARER_TOKEN') ##Added newly
+WATERMARK_PRESET_ID = os.environ.get('WATERMARK_PRESET_ID','019a97649ff37ec1a71193dfe213b933') ##Added newly
 
 DYNAMODB_DA_TABLE = os.environ.get('DYNAMODB_DA_TABLE')
 DYNAMODB_TITLE_TABLE = os.environ.get('DYNAMODB_TITLE_TABLE')

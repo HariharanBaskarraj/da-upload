@@ -65,3 +65,62 @@ class S3Service:
         except ClientError as e:
             logger.error(f"Error moving file to Error/: {e}")
             return False
+
+
+    def move_mov_files(self, manifest: dict):
+        """
+        Moves only .mov assets from watermark bucket → licensee bucket.
+        Returns count of moved files.
+        """
+        watermark_cache = settings.AWS_WATERMARKED_BUCKET
+        licencee_cache = settings.AWS_LICENSEE_BUCKET
+        assets = manifest.get("assets", [])
+        mov_assets = [
+            asset for asset in assets 
+            if asset.get("file_name", "").lower().endswith(".mov")
+        ]
+
+        if not mov_assets:
+            logger.info("No .mov files detected — skipping move.")
+            return 0
+
+        licensee_id = manifest["main_body"]["licensee_id"]
+        da_id = manifest["main_body"]["distribution_authorization_id"]
+
+        moved_count = 0
+
+        for asset in mov_assets:
+            source_key = asset["file_path"]  # in watermark bucket
+            file_name = asset["file_name"]
+
+            # Standardized destination key
+            dest_key = f"{licensee_id}/{da_id}/{file_name}"
+
+            logger.info(f"Moving MOV file: {source_key} → {dest_key}")
+
+            # 1️⃣ Copy
+            try:
+                self.s3.copy_object(
+                    Bucket=licencee_cache,
+                    Key=dest_key,
+                    CopySource={"Bucket": watermark_cache, "Key": source_key}
+                )
+                logger.info("Copy successful.")
+            except Exception as e:
+                logger.error(f"Copy failed for {source_key}: {e}")
+                continue  # skip delete if copy fails
+
+            # 2️⃣ Delete
+            try:
+                self.s3.delete_object(
+                    Bucket=watermark_cache,
+                    Key=source_key
+                )
+                logger.info("Delete from Watermark Cache successful.")
+                moved_count += 1
+            except Exception as e:
+                logger.error(f"Delete failed for {source_key}: {e}")
+                continue
+
+        logger.info(f"Total MOV files moved: {moved_count}")
+        return moved_count
