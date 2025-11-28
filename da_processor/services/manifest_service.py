@@ -1,3 +1,9 @@
+"""
+Manifest Service for Distribution Authorization (DA) payload generation.
+
+This service generates comprehensive delivery manifests containing DA metadata,
+asset information, and file delivery details for licensee distribution workflows.
+"""
 import json
 import logging
 import boto3
@@ -11,7 +17,14 @@ logger = logging.getLogger(__name__)
 
 class ManifestService:
     """
-    ManifestService - corrected field mappings and S3 handling with logging.
+    Service for generating distribution manifest payloads for DAs.
+
+    This service:
+    - Aggregates DA, title, licensee, and studio information
+    - Retrieves and filters assets based on component requirements
+    - Validates asset availability in S3 buckets
+    - Determines file status (New, Revised, No Change)
+    - Generates comprehensive manifest JSON for delivery orchestration
     """
 
     def __init__(self):
@@ -25,6 +38,28 @@ class ManifestService:
     # Public
     # ----------------------------------------------------------------------
     def generate_manifest(self, da_id: str) -> Dict:
+        """
+        Generate a complete delivery manifest for a Distribution Authorization.
+
+        Orchestrates the manifest generation workflow:
+        1. Retrieve DA, title, licensee, and studio information
+        2. Query component configurations
+        3. Retrieve and filter assets based on components
+        4. Validate asset presence in S3
+        5. Build final manifest JSON
+
+        Args:
+            da_id: Distribution Authorization ID
+
+        Returns:
+            Dictionary containing:
+                - main_body: DA and title metadata
+                - assets: List of asset dictionaries with delivery information
+
+        Raises:
+            ValueError: If DA or title not found
+            Exception: If manifest generation fails
+        """
         logger.info(f"[MANIFEST] Generating manifest for DA ID: {da_id}")
 
         da_info = self._get_da_info(da_id)
@@ -71,6 +106,18 @@ class ManifestService:
     # DynamoDB helpers
     # ----------------------------------------------------------------------
     def _get_da_info(self, da_id: str) -> Dict:
+        """
+        Retrieve Distribution Authorization record from DynamoDB.
+
+        Args:
+            da_id: Distribution Authorization ID
+
+        Returns:
+            Deserialized DA record dictionary
+
+        Raises:
+            ValueError: If DA not found
+        """
         logger.info(f"[DA] Fetching DA Info for ID={da_id}")
         response = self.dynamodb.get_item(
             TableName=settings.DYNAMODB_DA_TABLE,
@@ -85,6 +132,19 @@ class ManifestService:
         return item
 
     def _get_title_info(self, title_id: str, version_id: str) -> Dict:
+        """
+        Retrieve title information record from DynamoDB.
+
+        Args:
+            title_id: Title identifier
+            version_id: Version identifier
+
+        Returns:
+            Deserialized title record dictionary
+
+        Raises:
+            ValueError: If title not found
+        """
         logger.info(f"[TITLE] Fetching Title Info for {title_id}/{version_id}")
         response = self.dynamodb.get_item(
             TableName=settings.DYNAMODB_TITLE_TABLE,
@@ -102,6 +162,18 @@ class ManifestService:
         return item
 
     def _get_licensee_info(self, licensee_id: str) -> Dict:
+        """
+        Retrieve licensee information from DynamoDB.
+
+        Args:
+            licensee_id: Licensee identifier
+
+        Returns:
+            Deserialized licensee record dictionary
+
+        Raises:
+            ValueError: If licensee not found
+        """
         logger.info(f"[LICENSEE] Fetching Licensee Info for {licensee_id}")
         response = self.dynamodb.get_item(
             TableName=settings.DYNAMODB_LICENSEE_TABLE,
@@ -116,6 +188,15 @@ class ManifestService:
         return item
 
     def _get_studio_config(self, studio_id: str) -> Dict:
+        """
+        Retrieve studio configuration from DynamoDB.
+
+        Args:
+            studio_id: Studio identifier
+
+        Returns:
+            Deserialized studio config dictionary (returns fallback if not found)
+        """
         logger.info(f"[STUDIO] Fetching Studio Config for ID={studio_id}")
         response = self.dynamodb.get_item(
             TableName=settings.DYNAMODB_STUDIO_CONFIG_TABLE,
@@ -134,6 +215,15 @@ class ManifestService:
     # Component handling
     # ----------------------------------------------------------------------
     def _get_components_for_da(self, da_id: str) -> List[Dict]:
+        """
+        Retrieve all components for a Distribution Authorization.
+
+        Args:
+            da_id: Distribution Authorization ID
+
+        Returns:
+            List of deserialized component dictionaries
+        """
         logger.info(f"[COMPONENTS] Querying components for DA ID: {da_id}")
         response = self.dynamodb.query(
             TableName=settings.DYNAMODB_COMPONENT_TABLE,
@@ -147,6 +237,15 @@ class ManifestService:
         return components
 
     def _get_component_folders(self, components: List[Dict]) -> List[str]:
+        """
+        Extract folder structures for components from configuration table.
+
+        Args:
+            components: List of component dictionaries
+
+        Returns:
+            List of normalized folder path strings
+        """
         folders = []
         for comp in components:
             component_id = comp.get('Component_ID')
@@ -185,6 +284,18 @@ class ManifestService:
     # Asset retrieval + filtering
     # ----------------------------------------------------------------------
     def _asset_exists_in_s3(self, filename: str, folder_path: str) -> bool:
+        """
+        Check if asset file exists in appropriate S3 bucket.
+
+        Routes .mov files to watermarked bucket, others to asset repository.
+
+        Args:
+            filename: Asset filename
+            folder_path: S3 folder path
+
+        Returns:
+            True if asset exists, False otherwise
+        """
         bucket = (
             settings.AWS_WATERMARKED_BUCKET
             if filename.lower().endswith('.mov')
@@ -213,6 +324,21 @@ class ManifestService:
             return False
 
     def _get_assets_for_title_and_components(self, title_id: str, version_id: str, component_folders: List[str]) -> List[Dict]:
+        """
+        Retrieve and filter assets for title matching component folder structures.
+
+        Queries assets by title/version and filters based on:
+        - Component folder path matching
+        - S3 availability verification
+
+        Args:
+            title_id: Title identifier
+            version_id: Version identifier
+            component_folders: List of folder paths from component configs
+
+        Returns:
+            List of filtered asset dictionaries with AssetId populated
+        """
         logger.info(
             f"[ASSETS] Querying assets for Title={title_id}, Version={version_id}")
 
@@ -284,6 +410,19 @@ class ManifestService:
     # Manifest build
     # ----------------------------------------------------------------------
     def _build_manifest(self, da_info: Dict, title_info: Dict, licensee_info: Dict, studio_config: Dict, assets: List[Dict]) -> Dict:
+        """
+        Build final manifest JSON from aggregated DA data.
+
+        Args:
+            da_info: DA record dictionary
+            title_info: Title record dictionary
+            licensee_info: Licensee record dictionary
+            studio_config: Studio configuration dictionary
+            assets: List of filtered asset dictionaries
+
+        Returns:
+            Complete manifest dictionary with main_body and assets sections
+        """
         manifest = {
             "main_body": {
                 "distribution_authorization_id": da_info.get('ID', ''),
@@ -359,6 +498,16 @@ class ManifestService:
         }
 
     def _determine_file_status(self, asset_id: str, current_checksum: str) -> str:
+        """
+        Determine file delivery status by comparing checksums.
+
+        Args:
+            asset_id: Asset identifier
+            current_checksum: Current file checksum
+
+        Returns:
+            Status string: "New", "No Change", or "Revised"
+        """
         try:
             if not asset_id:
                 logger.debug(
@@ -391,7 +540,14 @@ class ManifestService:
 
     def _get_file_size_from_s3(self, filename: str, asset: dict) -> float:
         """
-        Use asset['Folder_Path'] as the full S3 key (it already contains filename).
+        Retrieve file size from S3 using asset folder path.
+
+        Args:
+            filename: Asset filename
+            asset: Asset dictionary containing Folder_Path
+
+        Returns:
+            File size in megabytes (MB), or 0.0 if unavailable
         """
         try:
             bucket = settings.AWS_WATERMARKED_BUCKET if filename.lower().endswith(
@@ -419,6 +575,15 @@ class ManifestService:
     # DynamoDB deserializer
     # ----------------------------------------------------------------------
     def _deserialize_item(self, item: Dict) -> Dict:
+        """
+        Deserialize DynamoDB item format to standard Python dictionary.
+
+        Args:
+            item: DynamoDB item with typed values (e.g., {'S': '...', 'N': '...'})
+
+        Returns:
+            Flattened dictionary with plain values
+        """
         parsed = {}
         for key, value in item.items():
             if 'S' in value:

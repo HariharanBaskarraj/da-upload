@@ -1,3 +1,9 @@
+"""
+Delivery Worker Management Command.
+
+This command runs as a worker that polls SQS queue for delivery tracking requests,
+processes file delivery status updates, and sends manifests to licensees.
+"""
 import logging
 from django.core.management.base import BaseCommand
 from django.conf import settings
@@ -8,9 +14,21 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
+    """
+    Django management command for delivery tracking worker.
+
+    This worker:
+    - Polls SQS queue for delivery tracking messages
+    - Validates delivery windows
+    - Generates manifests with asset information
+    - Tracks file delivery statuses
+    - Updates component and DA delivery statuses
+    - Sends enriched manifests to licensees via SQS
+    """
     help = 'Start delivery tracking worker that polls SQS queue'
 
     def handle(self, *args, **options):
+        """Execute the delivery tracking worker."""
         self.stdout.write(self.style.SUCCESS('Starting Delivery Tracking Worker...'))
         
         queue_url = settings.AWS_SQS_DELIVERY_QUEUE_URL

@@ -134,6 +134,13 @@ DYNAMODB_ASSET_TABLE = os.environ.get('DYNAMODB_ASSET_TABLE', 'routerunner-poc-a
 DYNAMODB_COMPONENT_CONFIG_TABLE = os.environ.get('DYNAMODB_COMPONENT_CONFIG_TABLE', 'routerunner-poc-component-configs')
 DYNAMODB_FILE_DELIVERY_TABLE = os.environ.get('DYNAMODB_FILE_DELIVERY_TABLE', 'routerunner-poc-file-delivery-tracker')
 
+# Asset Ingestion Configuration
+INGEST_S3_BUCKET = os.environ.get('INGEST_S3_BUCKET', 'routerunner-poc-ingest')
+INGEST_ASSET_TABLE = os.environ.get('INGEST_ASSET_TABLE', 'routerunner-poc-ingest-assets')
+TITLE_INFO_TABLE = os.environ.get('TITLE_INFO_TABLE', 'routerunner-poc-title-info')
+ASSET_INFO_TABLE = os.environ.get('ASSET_INFO_TABLE', 'routerunner-poc-asset-info')
+ASSET_VALIDATION_CUTOFF_MINUTES = int(os.environ.get('ASSET_VALIDATION_CUTOFF_MINUTES', '1'))
+
 AWS_SQS_PRIMEVIDEO_QUEUE_URL = os.environ.get('AWS_SQS_PRIMEVIDEO_QUEUE_URL')
 AWS_SQS_DLQ_URL = os.environ.get('AWS_SQS_DLQ_URL')
 AWS_SQS_CSV_QUEUE_URL = os.environ.get('AWS_SQS_CSV_QUEUE_URL')

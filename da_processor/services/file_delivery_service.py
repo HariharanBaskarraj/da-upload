@@ -1,3 +1,9 @@
+"""
+File Delivery Service for tracking DA asset delivery status.
+
+This service manages file delivery tracking, status updates, and delivery completeness
+validation for Distribution Authorizations.
+"""
 import logging
 import boto3
 from typing import Dict, List, Optional
@@ -9,6 +15,17 @@ logger = logging.getLogger(__name__)
 
 
 class FileDeliveryService:
+    """
+    Service for tracking file deliveries and updating delivery statuses.
+
+    This service:
+    - Tracks individual file deliveries with checksums
+    - Determines file status (New, Revised, No Change) based on checksum comparison
+    - Updates component delivery status (Complete, Partial, Pending)
+    - Updates DA delivery status based on component statuses
+    - Infers component IDs from folder structures
+    - Manages delivery timestamps and revision counts
+    """
 
     def __init__(self):
         self.dynamodb = boto3.resource('dynamodb', region_name=settings.AWS_REGION)

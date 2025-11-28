@@ -1,3 +1,9 @@
+"""
+CSV processor for Distribution Authorization (DA) file uploads.
+
+This processor handles validation and processing of CSV files uploaded via S3
+for DA creation, including parsing, normalization, and database record creation.
+"""
 import csv
 import logging
 from io import StringIO
@@ -10,6 +16,20 @@ logger = logging.getLogger(__name__)
 
 
 class CSVProcessor(BaseDAProcessor):
+    """
+    Processor for CSV-based Distribution Authorization uploads from S3.
+
+    This processor:
+    - Parses CSV files with main body and component sections
+    - Validates required fields for title and components
+    - Normalizes data to match database schema
+    - Creates DA records, title info, and component records in DynamoDB
+    - Schedules manifest generation and exception notifications
+
+    Attributes:
+        REQUIRED_MAIN_FIELDS: List of required field names for main DA body
+        REQUIRED_COMPONENT_FIELDS: List of required field names for components
+    """
 
     REQUIRED_MAIN_FIELDS = ['Licensee ID', 'Title ID', 'Version ID', 'Release Year',
                             'License Period Start', 'License Period End']
@@ -20,6 +40,23 @@ class CSVProcessor(BaseDAProcessor):
         self.scheduler_service = SchedulerService()
 
     def parse_csv(self, csv_content: str) -> Tuple[Dict, List[Dict]]:
+        """
+        Parse CSV content into main body and components sections.
+
+        CSV format:
+        - Rows 1-N: Main body key-value pairs
+        - Divider row: Component ID, Required Flag, Watermark Required
+        - Remaining rows: Component data
+
+        Args:
+            csv_content: Raw CSV file content as string
+
+        Returns:
+            Tuple of (main_body_dict, components_list)
+
+        Raises:
+            ValueError: If CSV format is invalid or divider not found
+        """
         csv_reader = csv.reader(StringIO(csv_content))
         all_rows = list(csv_reader)
 
@@ -57,6 +94,15 @@ class CSVProcessor(BaseDAProcessor):
         return main_body, components
 
     def validate_main_body(self, main_body: Dict) -> None:
+        """
+        Validate that all required fields are present in the main body.
+
+        Args:
+            main_body: Dictionary of main body attributes
+
+        Raises:
+            ValueError: If required fields are missing
+        """
         missing_fields = []
         for field in self.REQUIRED_MAIN_FIELDS:
             if field not in main_body or not main_body[field]:
@@ -68,6 +114,15 @@ class CSVProcessor(BaseDAProcessor):
             raise ValueError(error_msg)
 
     def validate_components(self, components: List[Dict]) -> None:
+        """
+        Validate that all components have required fields.
+
+        Args:
+            components: List of component dictionaries
+
+        Raises:
+            ValueError: If components are invalid or missing required fields
+        """
         if not components:
             raise ValueError("No components found in CSV")
 
@@ -79,6 +134,18 @@ class CSVProcessor(BaseDAProcessor):
                     raise ValueError(error_msg)
 
     def normalize_data(self, main_body: Dict, components: List[Dict]) -> Tuple[Dict, List[Dict]]:
+        """
+        Normalize data to match database schema.
+
+        Maps CSV field names to database field names and ensures proper formatting.
+
+        Args:
+            main_body: Parsed main body dictionary
+            components: List of component dictionaries
+
+        Returns:
+            Tuple of (normalized_main_body, normalized_components)
+        """
         normalized_main = {
             'Title_ID': main_body.get('Title ID', ''),
             'Title_Name': main_body.get('Title Name', ''),
@@ -112,6 +179,15 @@ class CSVProcessor(BaseDAProcessor):
         return normalized_main, normalized_components
 
     def validate_final_data(self, normalized_main: Dict) -> None:
+        """
+        Final validation of normalized data before database insertion.
+
+        Args:
+            normalized_main: Normalized main body data
+
+        Raises:
+            ValueError: If required fields are empty after normalization
+        """
         required_normalized_fields = {
             'Title_ID': 'Title ID',
             'Version_ID': 'Version ID',
@@ -132,6 +208,27 @@ class CSVProcessor(BaseDAProcessor):
             raise ValueError(error_msg)
 
     def process(self, csv_content: str) -> Dict:
+        """
+        Process a CSV DA file from S3.
+
+        Orchestrates the entire processing workflow:
+        1. Parse CSV content
+        2. Validate main body and components
+        3. Normalize data
+        4. Apply default values
+        5. Create database records
+        6. Schedule notifications
+
+        Args:
+            csv_content: Raw CSV file content as string
+
+        Returns:
+            Dictionary with processing results including DA ID
+
+        Raises:
+            ValueError: If validation fails
+            Exception: If processing fails
+        """
         try:
             main_body, components = self.parse_csv(csv_content)
 

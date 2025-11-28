@@ -1,3 +1,10 @@
+"""
+Missing Assets Service for Distribution Authorization (DA) asset validation.
+
+This service identifies missing required assets for DAs by comparing component
+requirements against available assets in S3 buckets, supporting exception
+notification workflows.
+"""
 import logging
 import boto3
 from typing import Dict, List, Optional
@@ -8,6 +15,15 @@ logger = logging.getLogger(__name__)
 
 
 class MissingAssetsService:
+    """
+    Service for detecting missing required assets for Distribution Authorizations.
+
+    This service:
+    - Checks required components against available assets in S3
+    - Validates asset presence across watermarked and asset repository buckets
+    - Provides detailed missing asset reports for exception notifications
+    - Queries component configurations to determine expected folder structures
+    """
 
     def __init__(self):
         self.dynamodb = boto3.resource('dynamodb', region_name=settings.AWS_REGION)
@@ -20,6 +36,33 @@ class MissingAssetsService:
         self.asset_table = self.dynamodb.Table(settings.DYNAMODB_ASSET_TABLE)
 
     def check_missing_assets_for_da(self, da_id: str) -> Dict:
+        """
+        Check for missing required assets for a Distribution Authorization.
+
+        Orchestrates the complete missing asset validation workflow:
+        1. Retrieve DA, title, and component information
+        2. Identify required components
+        3. Check asset availability in S3
+        4. Compile missing asset report
+
+        Args:
+            da_id: Distribution Authorization ID
+
+        Returns:
+            Dictionary containing:
+                - da_id: DA identifier
+                - title_id, title_name: Title information
+                - version_id, version_name: Version information
+                - licensee_id: Licensee identifier
+                - exception_recipients: Email recipients for notifications
+                - has_missing_assets: Boolean indicating if assets are missing
+                - missing_components: List of components with missing assets
+                - total_missing_count: Total number of missing assets
+
+        Raises:
+            ValueError: If DA not found
+            Exception: If validation process fails
+        """
         try:
             logger.info(f"[MISSING_ASSETS] Checking missing assets for DA: {da_id}")
             
@@ -91,6 +134,21 @@ class MissingAssetsService:
             raise
 
     def _check_component_assets(self, title_id: str, version_id: str, component_id: str) -> List[Dict]:
+        """
+        Check for missing assets within a specific component.
+
+        Args:
+            title_id: Title identifier
+            version_id: Version identifier
+            component_id: Component identifier
+
+        Returns:
+            List of dictionaries representing missing assets, each containing:
+                - asset_id: Asset identifier
+                - filename: Asset filename
+                - folder_path: Expected folder path
+                - full_path: Complete expected S3 path
+        """
         try:
             folder_structure = self._get_component_folder_structure(component_id)
             logger.info(f"Expected_Assets: {folder_structure}")
@@ -135,6 +193,18 @@ class MissingAssetsService:
             return []
 
     def _check_asset_in_s3(self, filename: str, folder_path: str) -> bool:
+        """
+        Check if an asset exists in the appropriate S3 bucket.
+
+        Routes .mov files to watermarked bucket, all others to asset repository.
+
+        Args:
+            filename: Asset filename
+            folder_path: Folder path within bucket
+
+        Returns:
+            True if asset exists in S3, False otherwise
+        """
         if filename.lower().endswith('.mov'):
             bucket = settings.AWS_WATERMARKED_BUCKET
         else:
@@ -158,6 +228,15 @@ class MissingAssetsService:
             return False
 
     def _get_component_folder_structure(self, component_id: str) -> Optional[str]:
+        """
+        Retrieve the folder structure configuration for a component.
+
+        Args:
+            component_id: Component identifier
+
+        Returns:
+            Normalized folder path string, or None if not found
+        """
         try:
             response = self.dynamodb_client.scan(
                 TableName=settings.DYNAMODB_COMPONENT_CONFIG_TABLE,
@@ -179,6 +258,19 @@ class MissingAssetsService:
     def _get_expected_assets_for_component(
         self, title_id: str, version_id: str, folder_structure: str
     ) -> List[Dict]:
+        """
+        Retrieve expected assets for a component based on folder structure.
+
+        Queries the asset table for matching assets and filters by folder path prefix.
+
+        Args:
+            title_id: Title identifier
+            version_id: Version identifier
+            folder_structure: Expected folder structure pattern
+
+        Returns:
+            List of asset dictionaries matching the component's folder structure
+        """
         try:
             response = self.asset_table.query(
                 IndexName='Title_ID-Version_ID-index',
@@ -219,6 +311,15 @@ class MissingAssetsService:
             return []
 
     def _get_da_info(self, da_id: str) -> Optional[Dict]:
+        """
+        Retrieve Distribution Authorization information from DynamoDB.
+
+        Args:
+            da_id: Distribution Authorization ID
+
+        Returns:
+            DA record dictionary, or None if not found
+        """
         try:
             response = self.da_table.get_item(Key={'ID': da_id})
             return response.get('Item')
@@ -227,6 +328,16 @@ class MissingAssetsService:
             return None
 
     def _get_title_info(self, title_id: str, version_id: str) -> Dict:
+        """
+        Retrieve title information from DynamoDB.
+
+        Args:
+            title_id: Title identifier
+            version_id: Version identifier
+
+        Returns:
+            Title record dictionary (empty dict if not found)
+        """
         try:
             response = self.title_table.get_item(
                 Key={'Title_ID': title_id, 'Version_ID': version_id}
@@ -237,6 +348,15 @@ class MissingAssetsService:
             return {}
 
     def _get_components_for_da(self, da_id: str) -> List[Dict]:
+        """
+        Retrieve all components associated with a Distribution Authorization.
+
+        Args:
+            da_id: Distribution Authorization ID
+
+        Returns:
+            List of component dictionaries
+        """
         try:
             response = self.component_table.query(
                 KeyConditionExpression='ID = :id',

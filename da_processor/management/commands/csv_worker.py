@@ -1,3 +1,9 @@
+"""
+CSV Worker Management Command.
+
+This command runs as a worker that polls SQS queue for CSV file upload notifications,
+processes CSV files from S3, creates DA records, and moves files to appropriate locations.
+"""
 import logging
 from django.core.management.base import BaseCommand
 from django.conf import settings
@@ -9,9 +15,20 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
+    """
+    Django management command for CSV processing worker.
+
+    This worker:
+    - Polls SQS queue for CSV upload notifications
+    - Retrieves CSV files from S3
+    - Processes CSV files to create DA records
+    - Moves successful files to Processed/ folder
+    - Moves failed files to Error/ folder
+    """
     help = 'Start CSV processing worker that polls SQS queue'
 
     def handle(self, *args, **options):
+        """Execute the CSV processing worker."""
         self.stdout.write(self.style.SUCCESS(
             'Starting CSV Processing Worker...'))
 

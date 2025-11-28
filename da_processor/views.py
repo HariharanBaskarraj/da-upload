@@ -1,3 +1,9 @@
+"""
+Django REST Framework views for Distribution Authorization API endpoints.
+
+This module provides API views for DA creation via JSON and CSV uploads,
+along with health check endpoints for service monitoring.
+"""
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -11,10 +17,34 @@ logger = logging.getLogger(__name__)
 
 
 class DistributionAuthorizationAPIView(APIView):
-    """API endpoint for JSON DA submissions"""
+    """
+    API endpoint for Distribution Authorization creation.
+
+    Supports both JSON and CSV file uploads for DA creation.
+    Automatically routes requests to appropriate processor based on content type.
+
+    Supported content types:
+        - application/json: JSON payload processing
+        - multipart/form-data: CSV file upload
+        - text/csv: CSV file upload
+    """
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def post(self, request):
+        """
+        Create a Distribution Authorization from JSON or CSV.
+
+        Args:
+            request: Django REST Framework request object
+
+        Returns:
+            Response with DA creation result
+
+        Status Codes:
+            - 201: DA created successfully
+            - 400: Invalid request or validation error
+            - 500: Internal server error
+        """
         try:
             content_type = request.content_type
 
@@ -57,7 +87,19 @@ class DistributionAuthorizationAPIView(APIView):
 
 
 class HealthCheckView(APIView):
-    """Health check endpoint"""
+    """
+    Health check endpoint for service monitoring.
+
+    Returns a simple healthy status response for load balancer
+    and monitoring tools.
+    """
     logger.disabled = True
+
     def get(self, request):
+        """
+        Health check endpoint.
+
+        Returns:
+            Response with healthy status
+        """
         return Response({'status': 'healthy'}, status=status.HTTP_200_OK)

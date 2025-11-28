@@ -1,3 +1,9 @@
+"""
+Base processor for Distribution Authorization (DA) processing.
+
+This module provides the abstract base class for all DA processors,
+establishing common initialization and helper methods for DA processing operations.
+"""
 import logging
 import boto3
 from abc import ABC, abstractmethod
@@ -10,7 +16,16 @@ logger = logging.getLogger(__name__)
 
 
 class BaseDAProcessor(ABC):
-    """Base class for DA processors"""
+    """
+    Abstract base class for Distribution Authorization processors.
+
+    This class provides common initialization and utility methods for all DA processors:
+    - Database service initialization
+    - Default values service setup
+    - SNS and SQS client configuration
+    - Exception notification methods
+    - Asset availability notification methods
+    """
     
     def __init__(self):
         self.db_service = DynamoDBService()

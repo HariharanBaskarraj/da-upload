@@ -1,3 +1,9 @@
+"""
+Default values service for applying studio-specific configurations.
+
+This service retrieves studio configuration from DynamoDB and applies
+default values for dates and other fields based on studio preferences.
+"""
 import logging
 from typing import Dict
 from da_processor.utils.date_utils import to_zulu, subtract_days
@@ -6,11 +12,32 @@ logger = logging.getLogger(__name__)
 
 
 class DefaultValuesService:
+    """
+    Service for applying default values and studio-specific configurations to DA records.
+
+    This service provides methods for:
+    - Applying default date values based on studio configuration
+    - Calculating due dates, delivery dates, and notification dates
+    - Handling missing or empty field values
+    """
 
     def __init__(self, db_service):
         self.db_service = db_service
 
     def apply_defaults(self, da_data: Dict, studio_id: str = None) -> Dict:
+        """
+        Apply default values to DA data based on studio configuration.
+
+        Retrieves studio configuration and applies default date calculations
+        and other default values for missing or empty fields.
+
+        Args:
+            da_data: DA record dictionary
+            studio_id: Studio identifier (optional, uses default if not provided)
+
+        Returns:
+            DA record dictionary with applied default values
+        """
         result = da_data.copy()
 
         studio_config = self.db_service.get_studio_config() or {}
@@ -44,6 +71,30 @@ class DefaultValuesService:
         exception_notification: int,
         exception_recipients: list
     ) -> Dict:
+        """
+        Apply system default calculations for dates and recipients.
+
+        Performs date conversions and calculations:
+        - Converts dates to Zulu time format
+        - Calculates Due_Date from License_Period_Start - due_date_window
+        - Calculates Earliest_Delivery_Date from Due_Date - earliest_delivery
+        - Calculates Exception_Notification_Date from Due_Date - exception_notification
+        - Applies default exception recipients
+        - Generates DA_Description if missing
+
+        Args:
+            da_data: DA record dictionary
+            due_date_window: Days before license start for due date
+            earliest_delivery: Days before due date for earliest delivery
+            exception_notification: Days before due date for exception notification
+            exception_recipients: List of default exception recipient emails
+
+        Returns:
+            DA record dictionary with calculated defaults
+
+        Raises:
+            ValueError: If date values are invalid or cannot be converted
+        """
         result = da_data.copy()
 
         if result.get("License_Period_Start"):
