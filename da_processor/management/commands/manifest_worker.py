@@ -12,6 +12,8 @@ from da_processor.services.sqs_processor_service import SQSProcessorService
 from da_processor.services.manifest_service import ManifestService
 from da_processor.services.sqs_service import SQSService
 from da_processor.services.scheduler_service import SchedulerService
+from da_processor.services.s3_service import S3Service
+from da_processor.services.watermark_cache_service import WatermarkCacheService
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +71,8 @@ class Command(BaseCommand):
                 manifest_service = ManifestService()
                 sqs_service = SQSService()
                 scheduler_service = SchedulerService()
+                s3_service = S3Service()
+                wm_service = WatermarkCacheService()
                 
                 manifest = manifest_service.generate_manifest(da_id)
                 
@@ -84,6 +88,31 @@ class Command(BaseCommand):
                     )
                     return
                 
+                #If the assets have mov file then move the file from watermarkcache to Licensee Cache and submit one more watermark
+                #MOv files move the file from watermarkcache to Licensee Cache
+                moved_count = s3_service.move_mov_files(manifest)
+                logger.info(f"Moved_count: {moved_count}")
+                if moved_count > 0:
+                    logger.info(f"{moved_count} MOV file(s) moved to Licensee Cache for DA {da_id}")
+                    # Submitting one more watermark file
+                    for asset in manifest["assets"]:
+                        if asset["file_name"].lower().endswith(".mov"):
+
+                            bucket = settings.WATERMARK_CACHE_BUCKET
+                            source_key = asset["file_path"]
+
+                            created_file = wm_service.generate_next_watermark(
+                                bucket=bucket,
+                                source_key=source_key,
+                                preset_id=settings.WATERMARK_PRESET_ID
+                            )
+
+                            logger.info(f"New watermark created: {created_file}")
+
+                else:
+                    logger.info("No MOV files to move.")
+                                
+
                 success = sqs_service.send_manifest_to_licensee(licensee_id, manifest)
                 
                 if success:
@@ -105,7 +134,7 @@ class Command(BaseCommand):
                         )
                     )
                     
-                    scheduler_service.delete_schedule(da_id)
+                    #scheduler_service.delete_schedule(da_id)
                     logger.info(f"Schedule deleted for DA: {da_id}")
                 else:
                     logger.error(f"Failed to send manifest for DA: {da_id}")

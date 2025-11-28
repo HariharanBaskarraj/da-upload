@@ -105,6 +105,14 @@ class MissingAssetsService:
                     logger.warning(
                         f"[MISSING_ASSETS] Component {component_id} has {len(missing_assets)} missing assets"
                     )
+                elif len(missing_assets)==0:
+                    all_missing_components.append({
+                        'component_id': component_id,
+                        'missing_assets': missing_assets
+                    })
+                    logger.warning(
+                        f"[MISSING_ASSETS] Component completly missed"
+                    )
             logger.info(f"Check for the result")
 
             result = {
@@ -162,11 +170,12 @@ class MissingAssetsService:
 
             logger.info(f"Expected_Assets: {expected_assets}")
             
+            missing_assets = []
             if not expected_assets:
                 logger.info(f"[MISSING_ASSETS] No expected assets for component: {component_id}")
                 return []
             
-            missing_assets = []
+            
             
             for asset in expected_assets:
                 asset_id = asset.get('Asset_ID', '')
@@ -210,7 +219,14 @@ class MissingAssetsService:
         else:
             bucket = settings.AWS_ASSET_REPO_BUCKET
         
-        s3_key = f"{folder_path}/{filename}".replace('//', '/')
+        #s3_key = f"{folder_path}/{filename}".replace('//', '/')
+
+        if filename.lower().endswith('.mov'):
+            file_name= filename.strip('.mov')
+            wm_filename = f"{file_name}_WM1.mov"
+            s3_key =  f"{folder_path}/{wm_filename}".replace('//', '/')
+        else:
+            s3_key = f"{folder_path}/{filename}".replace('//', '/')
         
         logger.debug(f"[MISSING_ASSETS] Checking S3: bucket={bucket}, key={s3_key}")
         

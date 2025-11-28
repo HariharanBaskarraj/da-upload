@@ -52,7 +52,8 @@ class SchedulerService:
         if not schedule_dt:
             raise ValueError(f"Invalid earliest delivery date: {earliest_delivery_date}")
         
-        schedule_expression = f"at({schedule_dt.strftime('%Y-%m-%dT%H:%M:%S')})"
+        start_date = schedule_dt.strftime('%Y-%m-%dT%H:%M:%S')
+        schedule_expression = f"rate(1 minute)"
         schedule_name = f"manifest-{da_id}"
         
         try:
