@@ -390,7 +390,7 @@ class ManifestService:
         # ---------------------------------------------------------------
         # For all non-MOV assets → direct filename check
         # ---------------------------------------------------------------
-        s3_key = f"{folder_path}/{filename}".replace("//", "/")
+        s3_key = f"{folder_path}".replace("//", "/")
         logger.debug(f"[S3] Checking non-MOV asset: bucket={bucket}, key={s3_key}")
 
         try:
@@ -538,41 +538,45 @@ class ManifestService:
 
     def _build_asset_data(self, asset: Dict) -> Dict:
         """
-        Build asset dict for manifest:
-         - ensure asset_id is populated from asset's AssetId (DB field)
-         - include Folder_Path as-is
-         - compute file_size using S3 key derived from Folder_Path
+        Build asset dict for manifest with correct folder_path and file_path.
         """
         filename = asset.get('Filename', '')
-        folder_path = (asset.get('Folder_Path', '') or '').replace("\\", "/")
-        version = int(asset.get('Version', 1)) if asset.get(
-            'Version') is not None else 1
+        folder_path_raw = (asset.get('Folder_Path', '') or '').replace("\\", "/")
+        version = int(asset.get('Version', 1)) if asset.get('Version') is not None else 1
 
-        # Prefer exact field names returned by DynamoDB asset table
-        asset_id = asset.get('AssetId') or asset.get(
-            'Asset_ID') or asset.get('Asset_Id') or ''
+        asset_id = asset.get('AssetId') or asset.get('Asset_ID') or asset.get('Asset_Id') or ''
+        
         if not asset_id:
-            logger.error(
-                f"[BUILD_ASSET] Missing AssetId for asset record: {asset}. This asset will carry empty id in manifest.")
+            logger.error(f"[BUILD_ASSET] Missing AssetId for asset record: {asset}")
         else:
-            logger.debug(
-                f"[BUILD_ASSET] Using AssetId={asset_id} for filename={filename}")
+            logger.debug(f"[BUILD_ASSET] Using AssetId={asset_id} for filename={filename}")
 
         checksum = asset.get('Checksum', '')
 
-        # compute file size from S3 using folder_path (which already contains filename in your DB)
+        # CRITICAL FIX: Remove filename from folder_path if present
+        folder_path = folder_path_raw.strip("/")
+        
+        # If folder_path ends with the filename, remove it
+        if folder_path.endswith(f"/{filename}"):
+            folder_path = folder_path[:-len(f"/{filename}")]
+            logger.debug(f"[BUILD_ASSET] Removed filename from folder_path: {folder_path_raw} -> {folder_path}")
+        elif folder_path.endswith(filename) and not folder_path.endswith(f"/{filename}"):
+            # Handle case without slash
+            folder_path = folder_path[:-len(filename)].rstrip('/')
+            logger.debug(f"[BUILD_ASSET] Removed filename (no slash) from folder_path: {folder_path_raw} -> {folder_path}")
+
+        # Compute file size from S3
         file_size_mb = self._get_file_size_from_s3(filename, asset)
 
-        # file_path: keep as stored (Folder_Path), but ensure normalized single slashes
-        file_path = folder_path.strip("/")
+        # Construct proper file_path
+        file_path = f"{folder_path}/{filename}"
 
         return {
-            # manifest format - use lower snake for manifest consumers
             "asset_id": asset_id,
-            "file_status": self._determine_file_status(asset_id, checksum),
+            "file_status": self._determine_file_status(asset_id, version),  # ← Use version, not checksum
             "file_name": filename,
-            "folder_path": file_path,
-            "file_path": file_path+f"/{filename}",
+            "folder_path": folder_path,  # ← Just the folder
+            "file_path": file_path,      # ← Folder + filename
             "checksum": checksum,
             "file_size_mb": file_size_mb,
             "studio_asset_id": asset.get('Studio_Asset_ID', ''),
@@ -582,21 +586,13 @@ class ManifestService:
             "revision_id": version,
         }
 
-    def _determine_file_status(self, asset_id: str, current_checksum: str) -> str:
+    def _determine_file_status(self, asset_id: str, current_version: int) -> str:
         """
-        Determine file delivery status by comparing checksums.
-
-        Args:
-            asset_id: Asset identifier
-            current_checksum: Current file checksum
-
-        Returns:
-            Status string: "New", "No Change", or "Revised"
+        Determine file delivery status by comparing versions and respecting existing status.
         """
         try:
             if not asset_id:
-                logger.debug(
-                    "[FILE_STATUS] Empty asset_id provided to determine file status -> treat as New")
+                logger.debug("[FILE_STATUS] Empty asset_id -> treat as New")
                 return "New"
 
             response = self.dynamodb.scan(
@@ -608,21 +604,35 @@ class ManifestService:
             items = response.get('Items', [])
 
             if not items:
+                logger.debug(f"[FILE_STATUS] No tracker record for asset {asset_id} -> New")
                 return "New"
 
             existing_item = self._deserialize_item(items[0])
-            existing_checksum = existing_item.get('Checksum', '')
+            existing_status = existing_item.get('File_Status', 'NEW')
+            existing_version = int(existing_item.get('Version', 1))
 
-            if existing_checksum == current_checksum:
-                return "No Change"
-            else:
+            logger.debug(
+                f"[FILE_STATUS] Tracker record found: Status={existing_status}, "
+                f"Version={existing_version}, Current Version={current_version}"
+            )
+
+            # If status is still "NEW", keep it "NEW"
+            if existing_status.upper() == 'NEW':
+                logger.debug(f"[FILE_STATUS] Status is NEW, keeping as New")
+                return "New"
+
+            # Compare versions
+            if current_version > existing_version:
+                logger.debug(f"[FILE_STATUS] Version increased {existing_version} -> {current_version} -> Revised")
                 return "Revised"
+            else:
+                logger.debug(f"[FILE_STATUS] Version unchanged ({current_version}) -> No Change")
+                return "No Change"
 
         except Exception as e:
-            logger.warning(
-                f"Could not determine file status for asset {asset_id}: {e}")
+            logger.warning(f"Could not determine file status for asset {asset_id}: {e}")
             return "New"
-
+        
     def _get_file_size_from_s3(self, filename: str, asset: dict) -> float:
         """
         Retrieve file size from S3 using asset folder path.

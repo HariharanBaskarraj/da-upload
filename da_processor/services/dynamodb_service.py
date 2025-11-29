@@ -1,8 +1,7 @@
 """
-DynamoDB service for Distribution Authorization (DA) operations.
+DynamoDB service for Distribution Authorization (DA) operations with Is_Active flag support.
 
-This service handles all DynamoDB operations for managing distribution authorizations,
-including title information, DA records, components, and studio configurations.
+This service handles all DynamoDB operations with enhanced status tracking and activation control.
 """
 import boto3
 import uuid
@@ -18,26 +17,17 @@ logger = logging.getLogger(__name__)
 class DynamoDBService:
     """
     Service for managing DynamoDB operations related to Distribution Authorizations.
-
-    This service provides methods for:
-    - Creating and retrieving DA records
-    - Managing title information
-    - Handling component configurations
-    - Accessing studio configuration settings
+    Enhanced with Is_Active flag and comprehensive status tracking.
     """
 
     def __init__(self):
-        self.dynamodb = boto3.resource(
-            'dynamodb', region_name=settings.AWS_REGION)
+        self.dynamodb = boto3.resource('dynamodb', region_name=settings.AWS_REGION)
         self.da_table = self.dynamodb.Table(settings.DYNAMODB_DA_TABLE)
         self.title_table = self.dynamodb.Table(settings.DYNAMODB_TITLE_TABLE)
-        self.component_table = self.dynamodb.Table(
-            settings.DYNAMODB_COMPONENT_TABLE)
-        self.studio_config_table = self.dynamodb.Table(
-            settings.DYNAMODB_STUDIO_CONFIG_TABLE)
+        self.component_table = self.dynamodb.Table(settings.DYNAMODB_COMPONENT_TABLE)
+        self.studio_config_table = self.dynamodb.Table(settings.DYNAMODB_STUDIO_CONFIG_TABLE)
         self.watermark_table = settings.WATERMARK_JOB_TABLE
         self.table = self.dynamodb.Table(self.watermark_table)
-
 
     def create_if_not_exists_title_info(self, title_data: Dict) -> Dict:
         try:
@@ -67,11 +57,9 @@ class DynamoDBService:
                     'Created_At': get_current_zulu()
                 }
                 self.title_table.put_item(Item=title_item)
-                logger.info(
-                    f"Created new title info record: Title_ID={title_id}, Version_ID={version_id}")
+                logger.info(f"Created new title info record: Title_ID={title_id}, Version_ID={version_id}")
             else:
-                logger.info(
-                    f"Title info already exists, no update performed: Title_ID={title_id}, Version_ID={version_id}")
+                logger.info(f"Title info already exists: Title_ID={title_id}, Version_ID={version_id}")
 
             return {"is_new": is_new}
 
@@ -80,6 +68,10 @@ class DynamoDBService:
             raise
 
     def create_da_record(self, da_data: Dict) -> Dict:
+        """
+        Create DA record with Is_Active=False initially.
+        Is_Active will be set to True only when earliest_delivery_date is reached.
+        """
         try:
             record_id = str(uuid.uuid4())
 
@@ -98,17 +90,50 @@ class DynamoDBService:
                 'Exception_Recipients': da_data.get('Exception_Recipients', ''),
                 'Internal_Studio_ID': da_data.get('Internal_Studio_ID', ''),
                 'Studio_System_ID': da_data.get('Studio_System_ID', ''),
+                'Is_Active': False,
+                'Delivery_Status': 'PENDING',
                 'Created_At': get_current_zulu()
             }
 
             response = self.da_table.put_item(Item=item)
-            logger.info(
-                f"DA record created: ID={record_id}, Title_ID={item['Title_ID']}, Version_ID={item['Version_ID']}")
+            logger.info(f"DA record created: ID={record_id}, Is_Active=False, Delivery_Status=PENDING")
             return {"ID": record_id, "response": response}
 
         except ClientError as e:
             logger.error(f"Error creating DA record: {e}")
             raise
+
+    def set_da_active(self, da_id: str) -> bool:
+        """
+        Set Is_Active=True for a DA when earliest_delivery_date is reached.
+        """
+        try:
+            self.da_table.update_item(
+                Key={'ID': da_id},
+                UpdateExpression='SET Is_Active = :active',
+                ExpressionAttributeValues={':active': True}
+            )
+            logger.info(f"Set Is_Active=True for DA: {da_id}")
+            return True
+        except ClientError as e:
+            logger.error(f"Error setting DA active: {e}")
+            return False
+
+    def set_da_inactive(self, da_id: str) -> bool:
+        """
+        Set Is_Active=False for a DA when license period ends.
+        """
+        try:
+            self.da_table.update_item(
+                Key={'ID': da_id},
+                UpdateExpression='SET Is_Active = :active',
+                ExpressionAttributeValues={':active': False}
+            )
+            logger.info(f"Set Is_Active=False for DA: {da_id}")
+            return True
+        except ClientError as e:
+            logger.error(f"Error setting DA inactive: {e}")
+            return False
 
     def get_da_record(self, record_id: str) -> Optional[Dict]:
         try:
@@ -118,7 +143,10 @@ class DynamoDBService:
             logger.error(f"Error getting DA record {record_id}: {e}")
             return None
 
-    def create_component(self, record_id: str, title_id: str, version_id:str, component_data: Dict) -> Dict:
+    def create_component(self, record_id: str, title_id: str, version_id: str, component_data: Dict) -> Dict:
+        """
+        Create component record with initial Delivery_Status=PENDING.
+        """
         try:
             item = {
                 'ID': record_id,
@@ -127,12 +155,12 @@ class DynamoDBService:
                 'Component_ID': component_data.get('Component_ID', ''),
                 'Required_Flag': component_data.get('Required_Flag', 'FALSE'),
                 'Watermark_Required': component_data.get('Watermark_Required', 'FALSE'),
+                'Delivery_Status': 'PENDING',
                 'Created_At': get_current_zulu()
             }
 
             response = self.component_table.put_item(Item=item)
-            logger.info(
-                f"Component {item['Component_ID']} added for ID={record_id}, Title_ID={title_id}")
+            logger.info(f"Component {item['Component_ID']} created for DA={record_id}, Status=PENDING")
             return response
 
         except ClientError as e:
@@ -152,8 +180,7 @@ class DynamoDBService:
 
     def get_studio_config(self, studio_id: str = None) -> Optional[Dict]:
         try:
-            response = self.studio_config_table.get_item(
-                Key={'Studio_ID': '1234'})
+            response = self.studio_config_table.get_item(Key={'Studio_ID': '1234'})
             config = response.get('Item')
             if config:
                 logger.info(f"Retrieved studio config for Studio_ID=1234")
@@ -161,13 +188,11 @@ class DynamoDBService:
                 logger.warning(f"No studio config found for Studio_ID=1234")
             return config
         except ClientError as e:
-            logger.error(
-                f"Error fetching studio config for Studio_ID=1234: {e}")
+            logger.error(f"Error fetching studio config: {e}")
             return None
 
     def create_job(self, job_data):
-        #self.table.put_item(Item=job_data)
-        self.table.put_item(Item=job_data,ConditionExpression="attribute_not_exists(job_id)")
+        self.table.put_item(Item=job_data, ConditionExpression="attribute_not_exists(job_id)")
         return job_data
 
     def update_job(self, job_id, updates: dict):
