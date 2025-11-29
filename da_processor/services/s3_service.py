@@ -1,5 +1,6 @@
 import boto3
 import logging
+import re
 from typing import Optional
 from django.conf import settings
 from botocore.exceptions import ClientError
@@ -68,59 +69,107 @@ class S3Service:
 
 
     def move_mov_files(self, manifest: dict):
-        """
-        Moves only .mov assets from watermark bucket → licensee bucket.
-        Returns count of moved files.
-        """
         watermark_cache = settings.AWS_WATERMARKED_BUCKET
         licencee_cache = settings.AWS_LICENSEE_BUCKET
         assets = manifest.get("assets", [])
+
         mov_assets = [
-            asset for asset in assets 
-            if asset.get("file_name", "").lower().endswith(".mov")
+            asset for asset in assets
+            if asset.get("file_name", "").lower().endswith(".mov") and asset.get("file_status") in ("New", "Revised")
         ]
 
+        logger.info(f"mov_assets: {mov_assets}")
+
         if not mov_assets:
-            logger.info("No .mov files detected — skipping move.")
-            return 0
+            logger.info("No .mov files detected.")
+            return []
 
-        licensee_id = manifest["main_body"]["licensee_id"]
-        da_id = manifest["main_body"]["distribution_authorization_id"]
-
-        moved_count = 0
+        moved_details = []
 
         for asset in mov_assets:
-            source_key = asset["file_path"]  # in watermark bucket
-            file_name = asset["file_name"]
+            original_name = asset["file_name"]                     # FirstLook.mov
+            base_name = original_name.replace(".mov", "")          # FirstLook
+            folder_path = "/".join(asset["file_path"].split("/")[:-1])
 
-            # Standardized destination key
-            dest_key = f"{licensee_id}/{da_id}/{file_name}"
+            prefix = f"{folder_path}/{base_name}_WM"
 
-            logger.info(f"Moving MOV file: {source_key} → {dest_key}")
+            logger.info(f"Scanning for WM versions: {prefix}")
 
-            # 1️⃣ Copy
+            response = self.s3_client.list_objects_v2(
+                Bucket=watermark_cache,
+                Prefix=prefix
+            )
+
+            if "Contents" not in response:
+                logger.warning(f"No WM files found for {original_name}")
+                continue
+
+            versioned = []
+            for obj in response["Contents"]:
+                key = obj["Key"]
+                match = re.search(r"_WM(\d+)\.mov$", key)
+                if match:
+                    versioned.append((int(match.group(1)), key))
+
+            if not versioned:
+                logger.warning(f"No WM version file found for: {original_name}")
+                continue
+
+            versioned.sort(key=lambda x: x[0])
+            lowest_version, lowest_key = versioned[0]
+
+            file_name = lowest_key.split("/")[-1]
+            licensee_id = manifest["main_body"]["licensee_id"]
+            da_id = manifest["main_body"]["distribution_authorization_id"]
+
+            file_name = lowest_key.split("/")[-1]
+
+            # Extract folder path from watermark key
+            folder_path = "/".join(lowest_key.split("/")[:-1])   # e.g., 1234.5678/Trailers
+
+            # Correct licensee path: PrimeVideo/{same_folder_path}/filename.mov
+            dest_key = f"{licensee_id}/{folder_path}/{file_name}"
+
+            logger.info(f"Moving: {lowest_key} → {dest_key}")
+
+            """ dest_key = f"{licensee_id}/{da_id}/{file_name}"
+
+            logger.info(f"Moving: {lowest_key} → {dest_key}") """
+
+            # Copy to licensee
             try:
                 self.s3_client.copy_object(
                     Bucket=licencee_cache,
                     Key=dest_key,
-                    CopySource={"Bucket": watermark_cache, "Key": source_key}
+                    CopySource={"Bucket": watermark_cache, "Key": lowest_key}
                 )
-                logger.info("Copy successful.")
             except Exception as e:
-                logger.error(f"Copy failed for {source_key}: {e}")
-                continue  # skip delete if copy fails
+                logger.error(f"Copy failed: {e}")
+                continue
 
-            # 2️⃣ Delete
+            # Delete from watermark
             try:
                 self.s3_client.delete_object(
                     Bucket=watermark_cache,
-                    Key=source_key
+                    Key=lowest_key
                 )
-                logger.info("Delete from Watermark Cache successful.")
-                moved_count += 1
             except Exception as e:
-                logger.error(f"Delete failed for {source_key}: {e}")
+                logger.error(f"Delete failed: {e}")
                 continue
 
-        logger.info(f"Total MOV files moved: {moved_count}")
-        return moved_count
+            moved_details.append({
+                "base_file": original_name,   # FirstLook.mov
+                "lowest_key": lowest_key,     # Full S3 path of WM1
+                "version": lowest_version
+            })
+
+        logger.info(f"Total MOV files moved: {len(moved_details)}")
+        return moved_details
+
+
+   
+    @staticmethod
+    def extract_wm_version(file_name: str) -> int:
+        match = re.search(r"_WM(\d+)\.mov$", file_name, re.IGNORECASE)
+        return int(match.group(1)) if match else None
+

@@ -46,6 +46,7 @@ class Command(BaseCommand):
                 assets_count = len(manifest.get('assets', []))
                 logger.info(f"Manifest generated: Title={manifest['main_body']['title_id']}, Assets={assets_count}")
                 
+                logger.info(f"Obtained Manifest:{manifest}")
                 if assets_count == 0:
                     logger.warning(f"No assets available for DA {da_id}, skipping manifest send")
                     self.stdout.write(
@@ -57,27 +58,29 @@ class Command(BaseCommand):
                 
                 #If the assets have mov file then move the file from watermarkcache to Licensee Cache and submit one more watermark
                 #MOv files move the file from watermarkcache to Licensee Cache
-                moved_count = s3_service.move_mov_files(manifest)
-                logger.info(f"Moved_count: {moved_count}")
-                if moved_count > 0:
-                    logger.info(f"{moved_count} MOV file(s) moved to Licensee Cache for DA {da_id}")
-                    # Submitting one more watermark file
-                    for asset in manifest["assets"]:
-                        if asset["file_name"].lower().endswith(".mov"):
+                moved_details = s3_service.move_mov_files(manifest)
+                logger.info(f"MOVED DETAILS: {moved_details}")
 
-                            bucket = settings.WATERMARK_CACHE_BUCKET
-                            source_key = asset["file_path"]
+                if moved_details:
+                    logger.info(f"{len(moved_details)} MOV file(s) moved to Licensee Cache for DA {da_id}")
 
-                            created_file = wm_service.generate_next_watermark(
-                                bucket=bucket,
-                                source_key=source_key,
-                                preset_id=settings.WATERMARK_PRESET_ID
-                            )
+                    for moved in moved_details:
+                        lowest_key = moved["lowest_key"]   # watermarkcache/.../FirstLook_WM1.mov
+                        base_file = moved["base_file"]     # FirstLook.mov
 
-                            logger.info(f"New watermark created: {created_file}")
+                        logger.info(f"Generating next WM for: {base_file} using {lowest_key}")
+
+                        new_file = wm_service.generate_next_watermark(
+                            bucket=settings.AWS_WATERMARKED_BUCKET,
+                            source_key=lowest_key,
+                            preset_id=settings.WATERMARK_PRESET_ID
+                        )
+
+                        logger.info(f"New WM version created for {base_file}: {new_file}")
 
                 else:
                     logger.info("No MOV files to move.")
+
                                 
 
                 success = sqs_service.send_manifest_to_licensee(licensee_id, manifest)

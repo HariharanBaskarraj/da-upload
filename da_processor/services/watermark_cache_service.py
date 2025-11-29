@@ -48,18 +48,19 @@ class WatermarkCacheService:
         pattern = re.compile(r"_WM(\d+)\.mov$", re.IGNORECASE)
 
         for obj in response.get("Contents", []):
+            logger.info(f"obj of response:{obj}")
             key = obj["Key"]
+            logger.info(f"key value: {key}")
             match = pattern.search(key)
+            logger.info(f"match value: {match}")
             if match:
                 idx = int(match.group(1))
                 max_index = max(max_index, idx)
 
         return max_index + 1
 
-    def generate_next_watermark(self, bucket: str, source_key: str, preset_id: str):
-        """
-        Creates ONE new watermark job with next WM index.
-        """
+    """ def generate_next_watermark(self, bucket: str, source_key: str, preset_id: str):
+        
         logger.info(f"Generate_next_watermark_file executes")
         # Parse names
         filename = source_key.split("/")[-1]                 # FirstLook.mov
@@ -88,11 +89,77 @@ class WatermarkCacheService:
 
         logger.info(f"watermark created: {new_wm_filename}")
 
+        return new_wm_filename """
+    
+    def generate_next_watermark(self, bucket: str, source_key: str, preset_id: str):
+        """
+        Creates ONE new watermark job with next WM index.
+        source_key may contain _WM#.mov — this function handles it safely.
+        """
+        logger.info("Generate_next_watermark_file executes")
+
+        filename = source_key.split("/")[-1]             # FirstLook_WM1.mov
+        folder_prefix = "/".join(source_key.split("/")[:-1])
+
+        # Extract the TRUE base filename (remove _WM#)
+        base_filename = re.sub(r"_WM\d+$", "", filename.rsplit(".", 1)[0])
+
+        logger.info(f"folder_prefix: {folder_prefix}")
+        logger.info(f"base_filename: {base_filename}")
+
+        # Ask S3 what the next version number should be
+        next_index = self.get_next_watermark_version(bucket, folder_prefix, base_filename)
+
+        logger.info(f"Next WM index: {next_index}")
+
+        new_wm_filename = f"{base_filename}_WM{next_index}.mov"
+        dest_key = f"{folder_prefix}/{new_wm_filename}"
+
+        logger.info(f"Creating new dynamic WM: {dest_key}")
+
+        clean_source_key = self._remove_wm_suffix(source_key)
+
+        self.create_watermark_job(
+            source_bucket=settings.AWS_ASSET_REPO_BUCKET,
+            source_key=clean_source_key,
+            wm_type=f"WM{next_index}",
+            preset_id=preset_id
+        )
+
+
+        # Create the watermark job
+        """ self.create_watermark_job(
+            bucket,
+            source_key,
+            wm_type=f"WM{next_index}",
+            preset_id=preset_id
+        ) """
+
+        logger.info(f"New WM created: {new_wm_filename}")
         return new_wm_filename
 
 
-    def create_watermark_job(self, source_bucket, source_key, wm_type, preset_id):
-        """Create watermark job and call API"""
+    def _remove_wm_suffix(self, key: str) -> str:
+        """
+        Removes _WM<number> from a key and restores original .mov filename.
+        Example:
+            input  ->  1234/Trailers/FirstLook_WM3.mov
+            output ->  1234/Trailers/FirstLook.mov
+        """
+        import re
+
+        folder = "/".join(key.split("/")[:-1])
+        filename = key.split("/")[-1]
+
+        # Remove _WM#
+        cleaned = re.sub(r"_WM\d+", "", filename, flags=re.IGNORECASE)
+
+        return f"{folder}/{cleaned}"
+
+
+
+    """ def create_watermark_job(self, source_bucket, source_key, wm_type, preset_id):
+       
         try:
             job_id = str(uuid4())
             
@@ -176,10 +243,106 @@ class WatermarkCacheService:
 
         except Exception as e:
             logger.error(f"Error creating watermark job: {str(e)}")
-            """ if watermark_job:
-                watermark_job.status = 'failed'
-                watermark_job.error_message = str(e)
-                watermark_job.save() """
+         
+            # Fail-safe update
+            self.dynamo_service.update_job(job_id, {
+                "status": "failed",
+                "error": str(e),
+                "updated_at": datetime.utcnow().isoformat()
+            })
+            
+            raise """
+    
+    def create_watermark_job(self, source_bucket, source_key, wm_type, preset_id):
+        """Create watermark job and call API"""
+        try:
+            job_id = str(uuid4())
+
+            # ---------------------------------------------------------
+            # 1. Parse S3 Key
+            # ---------------------------------------------------------
+            if '/' in source_key:
+                directory = '/'.join(source_key.split('/')[:-1])  # "PrimeVideo/1234/Trailers"
+                filename_with_ext = source_key.split('/')[-1]     # "FirstLook.mov"
+            else:
+                directory = ''
+                filename_with_ext = source_key
+
+            # split filename and extension
+            if '.' in filename_with_ext:
+                filename, extension = filename_with_ext.rsplit('.', 1)
+            else:
+                filename = filename_with_ext
+                extension = "mov"
+
+            # Create WM filename → FirstLook_WM1.mov
+            watermarked_filename = f"{filename}_{wm_type}.{extension}"
+
+            # Preserve folder → PrimeVideo/.../Trailers/FirstLook_WM1.mov
+            output_key = f"{directory}/{watermarked_filename}" if directory else watermarked_filename
+
+            # ---------------------------------------------------------
+            # 2. ALWAYS READ FROM LICENSEE CACHE IF MOV
+            # ---------------------------------------------------------
+            if extension.lower() == "mov":
+                # This ensures MOV files are taken from LICENSEE cache
+                input_uri = f"s3://{source_bucket}/{source_key}"#f"s3://{settings.AWS_WATERMARKED_BUCKET}/{source_key}"
+            else:
+                input_uri = f"s3://{source_bucket}/{source_key}"
+
+            # Output stays in licensee cache always
+            output_uri = f"s3://{settings.AWS_WATERMARKED_BUCKET}/{output_key}"
+
+            logger.info(f"Input URI: {input_uri}")
+            logger.info(f"Output URI: {output_uri}")
+
+            # ---------------------------------------------------------
+            # 3. Create DynamoDB Job Record
+            # ---------------------------------------------------------
+            job_record = {
+                "job_id": job_id,
+                "source_bucket": source_bucket,
+                "source_key": source_key,
+                "watermark_type": wm_type,
+                "status": "created",
+                "created_at": datetime.utcnow().isoformat(),
+                "preset_id": preset_id,
+                "output_key": output_key,
+                "output_uri": output_uri
+            }
+
+            self.dynamo_service.create_job(job_record)
+            logger.info(f"DynamoDB: Created job record {job_id}")
+
+            # ---------------------------------------------------------
+            # 4. Call External API
+            # ---------------------------------------------------------
+            api_response = self.submit_watermark_job(
+                input_uri=input_uri,
+                output_uri=output_uri,
+                watermark_preset_id=preset_id
+            )
+
+            # Extract response data
+            api_job_id = api_response.get('id')
+            api_status = api_response.get('status')
+            outputs = api_response.get('outputs', [])
+            api_wmid = outputs[0].get('wmid', '') if outputs else ''
+
+            # ---------------------------------------------------------
+            # 5. Update Dynamo with API response
+            # ---------------------------------------------------------
+            self.dynamo_service.update_job(job_id, {
+                "api_job_id": api_job_id,
+                "wmid": api_wmid,
+                "status": api_status,
+                "updated_at": datetime.utcnow().isoformat()
+            })
+
+            logger.info(f"DynamoDB: Updated job {job_id} with API details")
+
+        except Exception as e:
+            logger.error(f"Error creating watermark job: {str(e)}")
             # Fail-safe update
             self.dynamo_service.update_job(job_id, {
                 "status": "failed",
@@ -187,6 +350,7 @@ class WatermarkCacheService:
                 "updated_at": datetime.utcnow().isoformat()
             })
             raise
+
 
     def submit_watermark_job(self, input_uri, output_uri, watermark_preset_id):
         """

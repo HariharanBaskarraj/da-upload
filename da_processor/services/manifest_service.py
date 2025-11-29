@@ -1,6 +1,7 @@
 import json
 import logging
 import boto3
+import re
 from typing import Dict, List
 from django.conf import settings
 from da_processor.utils.date_utils import get_current_zulu
@@ -184,7 +185,7 @@ class ManifestService:
     # ----------------------------------------------------------------------
     # Asset retrieval + filtering
     # ----------------------------------------------------------------------
-    def _asset_exists_in_s3(self, filename: str, folder_path: str) -> bool:
+    """ def _asset_exists_in_s3(self, filename: str, folder_path: str) -> bool:
         bucket = (
             settings.AWS_WATERMARKED_BUCKET
             if filename.lower().endswith('.mov')
@@ -215,6 +216,86 @@ class ManifestService:
             logger.error(
                 f"[S3] Unexpected error checking object {s3_key} in bucket {bucket}: {e}")
             return False
+ """
+    def _asset_exists_in_s3(self, filename: str, folder_path: str) -> bool:
+        bucket = (
+            settings.AWS_WATERMARKED_BUCKET
+            if filename.lower().endswith('.mov')
+            else settings.AWS_ASSET_REPO_BUCKET
+        )
+
+        # ---------------------------------------------------------------
+        # If MOV → dynamically find the lowest WM version in watermark bucket
+        # ---------------------------------------------------------------
+        if filename.lower().endswith('.mov'):
+            base_name = filename[:-4]  # remove .mov
+            prefix = f"{folder_path}/{base_name}_WM".replace("//", "/")
+
+            logger.debug(f"[S3] Searching dynamic WM versions with prefix={prefix}")
+
+            try:
+                response = self.s3_client.list_objects_v2(
+                    Bucket=settings.AWS_WATERMARKED_BUCKET,
+                    Prefix=prefix
+                )
+
+                if "Contents" not in response:
+                    logger.warning(f"[S3] No WM files found for prefix {prefix}")
+                    return False
+
+                # Extract all WM versions
+                versions = []
+                for obj in response["Contents"]:
+                    key = obj["Key"]
+                    match = re.search(r"_WM(\d+)\.mov$", key, re.IGNORECASE)
+                    if match:
+                        versions.append((int(match.group(1)), key))
+
+                if not versions:
+                    logger.warning(f"[S3] No valid WM version files found for MOV asset {filename}")
+                    return False
+
+                # Pick the lowest WM version
+                versions.sort(key=lambda x: x[0])
+                lowest_version, lowest_key = versions[0]
+
+                logger.debug(f"[S3] Found WM version {lowest_version} for {filename}: {lowest_key}")
+
+                # Check existence of lowest WM file
+                try:
+                    self.s3_client.head_object(
+                        Bucket=settings.AWS_WATERMARKED_BUCKET,
+                        Key=lowest_key
+                    )
+                    return True
+                except self.s3_client.exceptions.ClientError:
+                    logger.warning(f"[S3] Lowest WM file not found: {lowest_key}")
+                    return False
+
+            except Exception as e:
+                logger.error(f"[S3] Error listing WM versions for prefix {prefix}: {e}")
+                return False
+
+        # ---------------------------------------------------------------
+        # For all non-MOV assets → direct filename check
+        # ---------------------------------------------------------------
+        s3_key = f"{folder_path}/{filename}".replace("//", "/")
+        logger.debug(f"[S3] Checking non-MOV asset: bucket={bucket}, key={s3_key}")
+
+        try:
+            self.s3_client.head_object(Bucket=bucket, Key=s3_key)
+            return True
+        except self.s3_client.exceptions.ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("404", "NotFound"):
+                logger.warning(f"[S3] Asset not found in bucket={bucket}, key={s3_key}")
+                return False
+            logger.error(f"[S3] Unexpected client error: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"[S3] Unexpected error: {e}")
+            return False
+
 
     def _get_assets_for_title_and_components(self, title_id: str, version_id: str, component_folders: List[str]) -> List[Dict]:
         logger.info(
