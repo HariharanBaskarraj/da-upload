@@ -1,5 +1,11 @@
+"""
+JSON processor for Distribution Authorization (DA) API uploads.
+
+This processor handles validation and processing of JSON payloads submitted
+via API for DA creation, including title metadata and component configurations.
+"""
 import logging
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from django.conf import settings
 from .base_processor import BaseDAProcessor
 from da_processor.services.scheduler_service import SchedulerService
@@ -8,6 +14,19 @@ logger = logging.getLogger(__name__)
 
 
 class JSONProcessor(BaseDAProcessor):
+    """
+    Processor for JSON-based Distribution Authorization API uploads.
+
+    This processor:
+    - Validates JSON payload structure
+    - Extracts and normalizes DA data from nested JSON
+    - Validates required fields for title and component sections
+    - Creates DA records, title info, and component records in DynamoDB
+    - Schedules manifest generation and exception notifications
+
+    Attributes:
+        REQUIRED_MAIN_FIELDS: List of required field names for main DA body
+    """
 
     REQUIRED_MAIN_FIELDS = ['Licensee ID', 'Title ID', 'Version ID', 'Release Year',
                             'License Period Start', 'License Period End']
@@ -17,6 +36,15 @@ class JSONProcessor(BaseDAProcessor):
         self.scheduler_service = SchedulerService()
 
     def validate_payload(self, payload: Dict) -> None:
+        """
+        Validate the structure of the JSON payload.
+
+        Args:
+            payload: The JSON payload dictionary
+
+        Raises:
+            ValueError: If payload structure is invalid
+        """
         logger.debug("[PROCESSOR] Validating payload structure")
         if 'main_body_attributes' not in payload:
             raise ValueError("Missing 'main_body_attributes' in payload")
@@ -28,6 +56,15 @@ class JSONProcessor(BaseDAProcessor):
             raise ValueError("'components' must be a list")
 
     def validate_main_body(self, main_body: Dict) -> None:
+        """
+        Validate that all required fields are present in the main body.
+
+        Args:
+            main_body: Dictionary of main body attributes
+
+        Raises:
+            ValueError: If required fields are missing
+        """
         logger.debug("[PROCESSOR] Validating main body attributes")
         missing_fields = []
         for field in self.REQUIRED_MAIN_FIELDS:
@@ -40,6 +77,15 @@ class JSONProcessor(BaseDAProcessor):
             raise ValueError(error_msg)
 
     def validate_components(self, components: List[Dict]) -> None:
+        """
+        Validate that all components have required fields.
+
+        Args:
+            components: List of component dictionaries
+
+        Raises:
+            ValueError: If components are invalid or missing required fields
+        """
         logger.debug(f"[PROCESSOR] Validating {len(components)} components")
         if not components:
             raise ValueError("No components found in payload")
@@ -51,6 +97,17 @@ class JSONProcessor(BaseDAProcessor):
                 raise ValueError(error_msg)
 
     def extract_values(self, main_body_attrs: Dict) -> Dict:
+        """
+        Extract values from nested attribute structure.
+
+        Handles both dictionary format with 'Value' key and direct values.
+
+        Args:
+            main_body_attrs: Dictionary of attributes (may be nested)
+
+        Returns:
+            Dictionary with extracted flat values
+        """
         logger.debug("[PROCESSOR] Extracting main_body_attributes values")
         extracted = {}
         for key, data in main_body_attrs.items():
@@ -61,7 +118,19 @@ class JSONProcessor(BaseDAProcessor):
         logger.debug(f"[PROCESSOR] Extracted values: {extracted}")
         return extracted
 
-    def normalize_data(self, main_body_values: Dict, components: List[Dict]) -> tuple:
+    def normalize_data(self, main_body_values: Dict, components: List[Dict]) -> Tuple[Dict, List[Dict]]:
+        """
+        Normalize data to match database schema.
+
+        Maps API field names to database field names and ensures proper formatting.
+
+        Args:
+            main_body_values: Extracted main body values
+            components: List of component dictionaries
+
+        Returns:
+            Tuple of (normalized_main_body, normalized_components)
+        """
         logger.debug("[PROCESSOR] Normalizing data for DB storage")
         normalized_main = {
             'Title_ID': main_body_values.get('Title ID', ''),
@@ -98,6 +167,15 @@ class JSONProcessor(BaseDAProcessor):
         return normalized_main, normalized_components
 
     def validate_final_data(self, normalized_main: Dict) -> None:
+        """
+        Final validation of normalized data before database insertion.
+
+        Args:
+            normalized_main: Normalized main body data
+
+        Raises:
+            ValueError: If required fields are empty after normalization
+        """
         logger.debug("[PROCESSOR] Validating final normalized data before DB insert")
         required_normalized_fields = {
             'Title_ID': 'Title ID',
@@ -119,6 +197,26 @@ class JSONProcessor(BaseDAProcessor):
             raise ValueError(error_msg)
 
     def process(self, payload: Dict) -> Dict:
+        """
+        Process a JSON DA payload from API.
+
+        Orchestrates the entire processing workflow:
+        1. Validate payload structure
+        2. Extract and normalize data
+        3. Apply default values
+        4. Create database records
+        5. Schedule notifications
+
+        Args:
+            payload: JSON payload dictionary from API
+
+        Returns:
+            Dictionary with processing results including DA ID
+
+        Raises:
+            ValueError: If validation fails
+            Exception: If processing fails
+        """
         try:
             logger.info("[PROCESSOR] Starting DA JSON processing")
             self.validate_payload(payload)

@@ -1,3 +1,9 @@
+"""
+SQS service for sending messages to licensee queues.
+
+This service handles SQS operations for sending manifest notifications
+to licensee-specific queues for asset availability notifications.
+"""
 import json
 import logging
 import boto3
@@ -8,11 +14,28 @@ logger = logging.getLogger(__name__)
 
 
 class SQSService:
+    """
+    Service for managing SQS message operations to licensee queues.
+
+    This service provides methods for:
+    - Sending manifest notifications to licensee-specific SQS queues
+    - Managing queue URL mappings for different licensees
+    """
     
     def __init__(self):
         self.sqs_client = boto3.client('sqs', region_name=settings.AWS_REGION)
     
     def send_manifest_to_licensee(self, licensee_id: str, manifest: Dict) -> bool:
+        """
+        Send manifest to licensee-specific SQS queue.
+
+        Args:
+            licensee_id: Licensee identifier
+            manifest: Complete manifest dictionary
+
+        Returns:
+            True if sent successfully, False otherwise
+        """
         queue_url = self._get_queue_url_for_licensee(licensee_id)
         
         if not queue_url:
@@ -45,6 +68,15 @@ class SQSService:
             return False
     
     def _get_queue_url_for_licensee(self, licensee_id: str) -> str:
+        """
+        Get SQS queue URL for a specific licensee.
+
+        Args:
+            licensee_id: Licensee identifier
+
+        Returns:
+            Queue URL string, or empty string if not configured
+        """
         queue_mapping = {
             'PrimeVideo': settings.AWS_SQS_PRIMEVIDEO_QUEUE_URL
         }
@@ -52,6 +84,16 @@ class SQSService:
         return queue_mapping.get(licensee_id, '')
     
     def send_to_dlq(self, message: Dict, error_reason: str) -> bool:
+        """
+        Send failed message to Dead Letter Queue.
+
+        Args:
+            message: Original message dictionary
+            error_reason: Reason for failure
+
+        Returns:
+            True if sent to DLQ successfully, False otherwise
+        """
         try:
             message_body = json.dumps({
                 'original_message': message,

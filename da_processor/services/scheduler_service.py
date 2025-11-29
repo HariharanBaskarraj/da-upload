@@ -1,3 +1,9 @@
+"""
+Scheduler Service for AWS EventBridge schedule management.
+
+This service creates and manages scheduled Lambda invocations for manifest generation
+and exception notifications based on DA delivery and notification dates.
+"""
 import json
 import logging
 import boto3
@@ -10,11 +16,36 @@ logger = logging.getLogger(__name__)
 
 
 class SchedulerService:
+    """
+    Service for managing AWS EventBridge Scheduler schedules for DA workflows.
+
+    This service:
+    - Creates one-time schedules for manifest generation at earliest delivery dates
+    - Creates one-time schedules for exception notifications
+    - Updates existing schedules when dates change
+    - Deletes schedules when no longer needed
+    - Handles schedule conflicts and updates gracefully
+    """
     
     def __init__(self):
         self.scheduler_client = boto3.client('scheduler', region_name=settings.AWS_REGION)
     
     def create_manifest_schedule(self, da_id: str, earliest_delivery_date: str, licensee_id: str) -> str:
+        """
+        Create EventBridge schedule for manifest generation.
+
+        Args:
+            da_id: Distribution Authorization ID
+            earliest_delivery_date: ISO format date for schedule
+            licensee_id: Licensee identifier
+
+        Returns:
+            Schedule ARN
+
+        Raises:
+            ValueError: If date is invalid
+            Exception: If schedule creation fails
+        """
         logger.info(f"Creating manifest schedule for DA {da_id} with delivery date {earliest_delivery_date}")
         
         schedule_dt = parse_date(earliest_delivery_date)
@@ -54,6 +85,20 @@ class SchedulerService:
             raise
     
     def create_exception_notification_schedule(self, da_id: str, exception_notification_date: str) -> str:
+        """
+        Create EventBridge schedule for exception notification.
+
+        Args:
+            da_id: Distribution Authorization ID
+            exception_notification_date: ISO format date for schedule
+
+        Returns:
+            Schedule ARN
+
+        Raises:
+            ValueError: If date is invalid
+            Exception: If schedule creation fails
+        """
         logger.info(f"Creating exception notification schedule for DA {da_id} with date {exception_notification_date}")
         
         schedule_dt = parse_date(exception_notification_date)
@@ -141,6 +186,15 @@ class SchedulerService:
             raise
     
     def delete_schedule(self, da_id: str) -> bool:
+        """
+        Delete manifest generation schedule.
+
+        Args:
+            da_id: Distribution Authorization ID
+
+        Returns:
+            True if deleted successfully, False if not found or failed
+        """
         schedule_name = f"manifest-{da_id}"
         
         try:
@@ -155,6 +209,15 @@ class SchedulerService:
             return False
     
     def delete_exception_schedule(self, da_id: str) -> bool:
+        """
+        Delete exception notification schedule.
+
+        Args:
+            da_id: Distribution Authorization ID
+
+        Returns:
+            True if deleted successfully, False if not found or failed
+        """
         schedule_name = f"exception-{da_id}"
         
         try:

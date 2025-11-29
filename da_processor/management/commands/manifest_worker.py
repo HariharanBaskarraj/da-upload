@@ -1,3 +1,9 @@
+"""
+Manifest Worker Management Command.
+
+This command runs as a worker that polls SQS queue for manifest generation requests,
+generates delivery manifests, sends them to licensees, and triggers delivery tracking.
+"""
 import json
 import logging
 from django.core.management.base import BaseCommand
@@ -13,18 +19,45 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
+    """
+    Django management command for manifest generation worker.
+
+    This worker:
+    - Polls SQS queue for manifest generation messages
+    - Generates comprehensive delivery manifests
+    - Sends manifests to licensee-specific SQS queues
+    - Triggers delivery tracking workflows
+    - Deletes manifest schedules after processing
+    - Handles failures by sending messages to DLQ
+    """
     help = 'Start manifest generation worker that polls SQS queue'
 
     def handle(self, *args, **options):
+        """
+        Execute the manifest generation worker.
+
+        Args:
+            *args: Variable length argument list
+            **options: Arbitrary keyword arguments
+        """
         self.stdout.write(self.style.SUCCESS('Starting Manifest Generation Worker...'))
-        
+
         queue_url = settings.AWS_SQS_MANIFEST_QUEUE_URL
-        
+
         if not queue_url:
             self.stdout.write(self.style.ERROR('AWS_SQS_MANIFEST_QUEUE_URL not configured'))
             return
-        
+
         def process_manifest_message(message: dict):
+            """
+            Process manifest generation message from SQS queue.
+
+            Generates manifest, sends to licensee queue, triggers delivery tracking,
+            and deletes schedule. Sends failures to DLQ.
+
+            Args:
+                message: SQS message containing da_id and licensee_id
+            """
             try:
                 da_id = message.get('da_id')
                 licensee_id = message.get('licensee_id')

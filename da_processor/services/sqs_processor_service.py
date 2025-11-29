@@ -1,3 +1,9 @@
+"""
+SQS Processor Service for long-polling SQS queues.
+
+This service provides a generic SQS queue polling mechanism that processes
+messages using a provided callback function.
+"""
 import json
 import logging
 import boto3
@@ -9,6 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 class SQSProcessorService:
+    """
+    Service for processing SQS messages with long-polling.
+
+    This service:
+    - Implements long-polling for SQS queues
+    - Processes messages using provided callback function
+    - Handles message deletion after successful processing
+    - Provides error handling and retry logic
+    - Manages graceful shutdown
+    """
     
     def __init__(self, queue_url: str, processor_func: Callable):
         self.sqs_client = boto3.client('sqs', region_name=settings.AWS_REGION)
@@ -17,6 +33,12 @@ class SQSProcessorService:
         self.running = True
         
     def start_polling(self):
+        """
+        Start long-polling loop for SQS messages.
+
+        Continuously polls the queue, processes messages using the callback function,
+        and deletes successfully processed messages.
+        """
         logger.info(f"Starting SQS polling for queue: {self.queue_url}")
         
         while self.running:
@@ -58,5 +80,6 @@ class SQSProcessorService:
                 time.sleep(5)
     
     def stop_polling(self):
+        """Stop the SQS polling loop gracefully."""
         logger.info("Stopping SQS polling...")
         self.running = False

@@ -1,3 +1,9 @@
+"""
+Email Notification Service for Distribution Authorization (DA) alerts.
+
+This service sends formatted email notifications via AWS SES for missing asset
+alerts and other exception notifications in the DA workflow.
+"""
 import logging
 import boto3
 from typing import Dict, List
@@ -7,11 +13,38 @@ logger = logging.getLogger(__name__)
 
 
 class EmailNotificationService:
+    """
+    Service for sending email notifications via AWS Simple Email Service (SES).
+
+    This service:
+    - Sends missing asset alert emails with detailed component information
+    - Formats notifications in both HTML and plain text
+    - Handles recipient list management with fallback to defaults
+    - Provides styled email templates for professional notification delivery
+    """
 
     def __init__(self):
         self.ses_client = boto3.client('ses', region_name=settings.AWS_REGION)
 
     def send_missing_assets_notification(self, missing_assets_info: Dict) -> bool:
+        """
+        Send email notification about missing required assets for a DA.
+
+        Composes and sends both HTML and plain text versions of the notification
+        to configured recipients.
+
+        Args:
+            missing_assets_info: Dictionary containing:
+                - da_id: Distribution Authorization ID
+                - title_name, version_name: Title information
+                - licensee_id: Licensee identifier
+                - missing_components: List of components with missing assets
+                - total_missing_count: Total number of missing assets
+                - exception_recipients: Email recipients (comma-separated)
+
+        Returns:
+            True if email sent successfully, False otherwise
+        """
         try:
             da_id = missing_assets_info.get('da_id', '')
             title_name = missing_assets_info.get('title_name', 'Unknown')
@@ -64,9 +97,23 @@ class EmailNotificationService:
             return False
 
     def _build_html_email(
-        self, da_id: str, title_name: str, version_name: str, 
+        self, da_id: str, title_name: str, version_name: str,
         licensee_id: str, missing_components: List[Dict], total_missing: int
     ) -> str:
+        """
+        Build HTML-formatted email body for missing assets notification.
+
+        Args:
+            da_id: Distribution Authorization ID
+            title_name: Title name
+            version_name: Version name
+            licensee_id: Licensee identifier
+            missing_components: List of components with missing asset details
+            total_missing: Total count of missing assets
+
+        Returns:
+            HTML-formatted email string with inline CSS styling
+        """
         html = f"""
         <html>
         <head>
@@ -135,9 +182,23 @@ class EmailNotificationService:
         return html
 
     def _build_text_email(
-        self, da_id: str, title_name: str, version_name: str, 
+        self, da_id: str, title_name: str, version_name: str,
         licensee_id: str, missing_components: List[Dict], total_missing: int
     ) -> str:
+        """
+        Build plain text email body for missing assets notification.
+
+        Args:
+            da_id: Distribution Authorization ID
+            title_name: Title name
+            version_name: Version name
+            licensee_id: Licensee identifier
+            missing_components: List of components with missing asset details
+            total_missing: Total count of missing assets
+
+        Returns:
+            Plain text formatted email string
+        """
         text = f"""
 MISSING ASSETS ALERT
 {'=' * 60}

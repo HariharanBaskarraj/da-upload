@@ -1,3 +1,9 @@
+"""
+DynamoDB service for Distribution Authorization (DA) operations.
+
+This service handles all DynamoDB operations for managing distribution authorizations,
+including title information, DA records, components, and studio configurations.
+"""
 import boto3
 import uuid
 import logging
@@ -10,6 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 class DynamoDBService:
+    """
+    Service for managing DynamoDB operations related to Distribution Authorizations.
+
+    This service provides methods for:
+    - Creating and retrieving DA records
+    - Managing title information
+    - Handling component configurations
+    - Accessing studio configuration settings
+    """
 
     def __init__(self):
         self.dynamodb = boto3.resource(

@@ -1,3 +1,9 @@
+"""
+Exception Worker Management Command.
+
+This command runs as a worker that polls SQS queue for exception notification requests,
+checks for missing required assets, and sends email notifications to configured recipients.
+"""
 import logging
 from django.core.management.base import BaseCommand
 from django.conf import settings
@@ -10,9 +16,19 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
+    """
+    Django management command for exception notification worker.
+
+    This worker:
+    - Polls SQS queue for exception notification messages
+    - Checks for missing required assets for DAs
+    - Sends email notifications about missing assets
+    - Deletes exception schedules after processing
+    """
     help = 'Start exception notification worker that polls SQS queue'
 
     def handle(self, *args, **options):
+        """Execute the exception notification worker."""
         self.stdout.write(self.style.SUCCESS('Starting Exception Notification Worker...'))
         
         queue_url = settings.AWS_SQS_EXCEPTION_QUEUE_URL

@@ -1,3 +1,9 @@
+"""
+Delivery Orchestrator Service for coordinating DA delivery workflows.
+
+This service orchestrates the complete delivery process including manifest generation,
+file tracking, status updates, and licensee notification via SQS.
+"""
 import logging
 import boto3
 from typing import Dict, Optional
@@ -12,6 +18,17 @@ logger = logging.getLogger(__name__)
 
 
 class DeliveryOrchestratorService:
+    """
+    Service for orchestrating Distribution Authorization delivery workflows.
+
+    This service:
+    - Validates delivery windows based on earliest delivery and license end dates
+    - Generates manifests with asset information
+    - Tracks file delivery status (New, Revised, No Change)
+    - Updates component and DA delivery statuses
+    - Manages manifest send frequency limits
+    - Sends enriched manifests to licensees via SQS
+    """
 
     def __init__(self):
         self.file_delivery_service = FileDeliveryService()
@@ -22,6 +39,32 @@ class DeliveryOrchestratorService:
         self.licensee_table = self.dynamodb.Table(settings.DYNAMODB_LICENSEE_TABLE)
 
     def process_delivery_for_da(self, da_id: str) -> Dict:
+        """
+        Process delivery workflow for a Distribution Authorization.
+
+        Orchestrates the complete delivery process:
+        1. Validate delivery window
+        2. Generate manifest with assets
+        3. Track file deliveries
+        4. Update component and DA statuses
+        5. Send manifest to licensee if within frequency limits
+
+        Args:
+            da_id: Distribution Authorization ID
+
+        Returns:
+            Dictionary containing:
+                - success: Boolean indicating if processing succeeded
+                - da_id: DA identifier
+                - manifest_sent: Boolean indicating if manifest was sent
+                - new_or_revised_files: Count of new/revised files
+                - total_files: Total file count
+                - reason: Explanation if not sent (optional)
+
+        Raises:
+            ValueError: If DA not found
+            Exception: If processing fails
+        """
         try:
             logger.info(f"[DELIVERY] Starting delivery process for DA: {da_id}")
 
@@ -160,6 +203,15 @@ class DeliveryOrchestratorService:
             raise
 
     def _get_da_info(self, da_id: str) -> Optional[Dict]:
+        """
+        Retrieve Distribution Authorization record from DynamoDB.
+
+        Args:
+            da_id: Distribution Authorization ID
+
+        Returns:
+            DA record dictionary, or None if not found
+        """
         try:
             response = self.da_table.get_item(Key={'ID': da_id})
             return response.get('Item')
@@ -168,6 +220,15 @@ class DeliveryOrchestratorService:
             return None
 
     def _is_within_delivery_window(self, da_info: Dict) -> bool:
+        """
+        Check if current time is within DA delivery window.
+
+        Args:
+            da_info: DA record dictionary
+
+        Returns:
+            True if current time is between earliest delivery and license end dates
+        """
         earliest_delivery = da_info.get('Earliest_Delivery_Date')
         license_end = da_info.get('License_Period_End')
 
@@ -190,6 +251,16 @@ class DeliveryOrchestratorService:
         return is_within
 
     def _should_send_manifest(self, da_id: str, licensee_id: str) -> bool:
+        """
+        Check if manifest should be sent based on frequency limits.
+
+        Args:
+            da_id: Distribution Authorization ID
+            licensee_id: Licensee identifier
+
+        Returns:
+            True if manifest can be sent based on Next_Manifest_Check time
+        """
         try:
             da_info = self._get_da_info(da_id)
             next_check = da_info.get('Next_Manifest_Check') if da_info else None
@@ -215,6 +286,13 @@ class DeliveryOrchestratorService:
             return True
 
     def _update_next_manifest_check(self, da_id: str, licensee_id: str) -> None:
+        """
+        Update Next_Manifest_Check timestamp based on licensee frequency.
+
+        Args:
+            da_id: Distribution Authorization ID
+            licensee_id: Licensee identifier
+        """
         try:
             licensee_response = self.licensee_table.get_item(Key={'Licensee_ID': licensee_id})
 
@@ -239,6 +317,16 @@ class DeliveryOrchestratorService:
             logger.error(f"Error updating next manifest check: {e}")
 
     def _enrich_manifest_with_file_status(self, manifest: Dict, da_id: str) -> Dict:
+        """
+        Enrich manifest with tracked file delivery statuses.
+
+        Args:
+            manifest: Base manifest dictionary
+            da_id: Distribution Authorization ID
+
+        Returns:
+            Manifest with file_status added to each asset
+        """
         enriched_manifest = manifest.copy()
         enriched_assets = []
 

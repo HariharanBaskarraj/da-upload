@@ -1,3 +1,9 @@
+"""
+S3 service for CSV file operations and file management.
+
+This service handles S3 operations for the DA processing pipeline, including
+retrieving CSV files, moving processed files, and error handling.
+"""
 import boto3
 import logging
 import re
@@ -9,6 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 class S3Service:
+    """
+    Service for managing S3 operations in the DA processing pipeline.
+
+    This service provides methods for:
+    - Retrieving CSV content from S3
+    - Moving files to Processed/ folder after successful processing
+    - Moving files to Error/ folder when processing fails
+    """
     def __init__(self):
         self.s3_client = boto3.client('s3', region_name=settings.AWS_REGION)
         self.bucket_name = settings.AWS_DA_BUCKET
