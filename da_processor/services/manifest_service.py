@@ -280,58 +280,54 @@ class ManifestService:
                     f"[FOLDERS] Component {component_id} has empty folder configuration")
 
         return folders
-
-    # ----------------------------------------------------------------------
-    # Asset retrieval + filtering
-    # ----------------------------------------------------------------------
-<<<<<<< HEAD
-    """ def _asset_exists_in_s3(self, filename: str, folder_path: str) -> bool:
-=======
-    def _asset_exists_in_s3(self, filename: str, folder_path: str) -> bool:
         """
-        Check if asset file exists in appropriate S3 bucket.
+            # ----------------------------------------------------------------------
+            # Asset retrieval + filtering
+            # ----------------------------------------------------------------------
+            def _asset_exists_in_s3(self, filename: str, folder_path: str) -> bool:
+        # 
+                Check if asset file exists in appropriate S3 bucket.
 
-        Routes .mov files to watermarked bucket, others to asset repository.
+                Routes .mov files to watermarked bucket, others to asset repository.
 
-        Args:
-            filename: Asset filename
-            folder_path: S3 folder path
+                Args:
+                    filename: Asset filename
+                    folder_path: S3 folder path
 
-        Returns:
-            True if asset exists, False otherwise
+                Returns:
+                    True if asset exists, False otherwise
+        # 
+                bucket = (
+                    settings.AWS_WATERMARKED_BUCKET
+                    if filename.lower().endswith('.mov')
+                    else settings.AWS_ASSET_REPO_BUCKET
+                )
+                if filename.lower().endswith('.mov'):
+                    file_name= filename.strip('.mov')
+                    wm_filename = f"{file_name}_WM1.mov"
+                    s3_key = f"{folder_path}".replace("//", "/")+f"/{wm_filename}"
+                else:
+                    s3_key = f"{folder_path}".replace("//", "/")+f"/{filename}"
+                logger.debug(
+                    f"[S3] Checking S3 existence for bucket={bucket}, key={s3_key}")
+
+                try:
+                    self.s3_client.head_object(Bucket=bucket, Key=s3_key)
+                    return True
+                except self.s3_client.exceptions.ClientError as e:
+                    code = e.response.get("Error", {}).get("Code", "")
+                    if code in ("404", "NotFound"):
+                        logger.warning(
+                            f"[S3] Asset not found in bucket {bucket} key {s3_key}")
+                        return False
+                    logger.error(
+                        f"[S3] ClientError checking object {s3_key} in bucket {bucket}: {e}")
+                    return False
+                except Exception as e:
+                    logger.error(
+                        f"[S3] Unexpected error checking object {s3_key} in bucket {bucket}: {e}")
+                    return False
         """
->>>>>>> a4cdb60ea455edeea84bfb03ce8227317011f04c
-        bucket = (
-            settings.AWS_WATERMARKED_BUCKET
-            if filename.lower().endswith('.mov')
-            else settings.AWS_ASSET_REPO_BUCKET
-        )
-        if filename.lower().endswith('.mov'):
-            file_name= filename.strip('.mov')
-            wm_filename = f"{file_name}_WM1.mov"
-            s3_key = f"{folder_path}".replace("//", "/")+f"/{wm_filename}"
-        else:
-            s3_key = f"{folder_path}".replace("//", "/")+f"/{filename}"
-        logger.debug(
-            f"[S3] Checking S3 existence for bucket={bucket}, key={s3_key}")
-
-        try:
-            self.s3_client.head_object(Bucket=bucket, Key=s3_key)
-            return True
-        except self.s3_client.exceptions.ClientError as e:
-            code = e.response.get("Error", {}).get("Code", "")
-            if code in ("404", "NotFound"):
-                logger.warning(
-                    f"[S3] Asset not found in bucket {bucket} key {s3_key}")
-                return False
-            logger.error(
-                f"[S3] ClientError checking object {s3_key} in bucket {bucket}: {e}")
-            return False
-        except Exception as e:
-            logger.error(
-                f"[S3] Unexpected error checking object {s3_key} in bucket {bucket}: {e}")
-            return False
- """
     def _asset_exists_in_s3(self, filename: str, folder_path: str) -> bool:
         bucket = (
             settings.AWS_WATERMARKED_BUCKET
